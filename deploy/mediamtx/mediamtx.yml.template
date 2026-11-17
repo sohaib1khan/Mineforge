@@ -35,7 +35,8 @@ hlsEncryption: no
 hlsAlwaysRemux: yes
 # LL-HLS (~2–5s). Proxy must forward _HLS_* query params and tolerate gap.mp4.
 hlsVariant: lowLatency
-hlsSegmentCount: 4
+# MediaMTX requires >= 7 segments for lowLatency.
+hlsSegmentCount: 7
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 hlsSegmentMaxSize: 50M
