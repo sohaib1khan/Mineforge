@@ -61,7 +61,8 @@
 
 @layer components {
   .mf-card {
-    @apply rounded-md border border-border bg-surface/85 transition;
+    @apply rounded-md border border-border transition;
+    background-color: color-mix(in srgb, var(--color-surface) 85%, transparent);
     box-shadow: var(--shadow-soft);
   }
 
