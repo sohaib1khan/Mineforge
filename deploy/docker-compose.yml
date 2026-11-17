@@ -110,7 +110,7 @@ services:
       - ./mediamtx/mediamtx.yml.template:/mediamtx.yml.template:ro
     ports:
       # Bind to LAN IP from .env — never publish 0.0.0.0 on a public host.
-      - "${MEDIAMTX_RTMP_BIND_IP:127.0.0.1}:1935:1935"
+      - "${MEDIAMTX_RTMP_BIND_IP:-127.0.0.1}:1935:1935"
     networks:
       - mineforge
     restart: unless-stopped
