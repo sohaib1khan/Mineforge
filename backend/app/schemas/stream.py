@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class StreamStatusResponse(BaseModel):
@@ -51,7 +53,13 @@ class StreamKeyRotateResponse(BaseModel):
 
 
 class MediaMtxAuthRequest(BaseModel):
-    """Payload MediaMTX POSTs to the HTTP auth endpoint."""
+    """Payload MediaMTX POSTs to the HTTP auth endpoint.
+
+    MediaMTX may send JSON null for optional fields (notably ``id`` on HLS
+    reads). Coerce nulls to empty strings so auth does not 422.
+    """
+
+    model_config = ConfigDict(extra="ignore")
 
     user: str = ""
     password: str = ""
@@ -63,3 +71,20 @@ class MediaMtxAuthRequest(BaseModel):
     id: str = ""
     query: str = ""
     userAgent: str = ""
+
+    @field_validator(
+        "user",
+        "password",
+        "token",
+        "ip",
+        "action",
+        "path",
+        "protocol",
+        "id",
+        "query",
+        "userAgent",
+        mode="before",
+    )
+    @classmethod
+    def _null_to_empty(cls, value: Any) -> Any:
+        return "" if value is None else value

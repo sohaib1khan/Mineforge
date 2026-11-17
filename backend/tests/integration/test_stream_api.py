@@ -77,7 +77,7 @@ def test_stream_status_and_key_rotate(
             "user": "publish",
             "password": key,
             "action": "publish",
-            "path": "live",
+            "path": "live/stream",
             "protocol": "rtmp",
             "ip": "10.0.0.5",
         },
@@ -91,12 +91,31 @@ def test_stream_status_and_key_rotate(
             "user": "publish",
             "password": "not-the-key",
             "action": "publish",
-            "path": "live",
+            "path": "live/stream",
             "protocol": "rtmp",
             "ip": "10.0.0.5",
         },
     )
     assert bad_key.status_code == 401
+
+    # MediaMTX HLS reads often send id: null — must not 422.
+    hls_read = client.post(
+        "/internal/stream/auth?token=test-internal-stream-secret",
+        headers={"X-Real-IP": "172.18.0.4"},
+        json={
+            "user": "",
+            "password": "",
+            "token": "",
+            "ip": "172.18.0.5",
+            "action": "read",
+            "path": "live/stream",
+            "protocol": "hls",
+            "id": None,
+            "query": "",
+            "userAgent": "mineforge-test",
+        },
+    )
+    assert hls_read.status_code == 200, hls_read.text
 
 
 def test_hls_path_rejection_when_authed(
