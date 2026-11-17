@@ -193,6 +193,13 @@ def sync_from_disk(session: Session, settings: Settings) -> list[World]:
             session.add(world)
 
     session.commit()
+    # After worlds exist in DB, import custom packs from /data into the library.
+    try:
+        from app.services import addons as addon_service
+
+        addon_service.import_packs_from_server_data(session, settings)
+    except Exception:
+        logger.exception("Pack import from server data failed")
     return list_worlds(session, settings)
 
 

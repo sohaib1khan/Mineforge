@@ -40,7 +40,11 @@ def _addon(session, addon) -> AddonResponse:
 
 
 @router.get("", response_model=AddonListResponse)
-def list_addons(session: SessionDep, _auth: AuthDep) -> AddonListResponse:
+def list_addons(
+    session: SessionDep, settings: SettingsDep, _auth: AuthDep
+) -> AddonListResponse:
+    # Pull custom packs already present under /data into the library (idempotent).
+    addon_service.import_packs_from_server_data(session, settings)
     items = addon_service.list_addons(session)
     return AddonListResponse(addons=[_addon(session, a) for a in items])
 

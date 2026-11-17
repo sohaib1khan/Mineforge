@@ -7,6 +7,7 @@ enabled library packs with world-embedded packs so imports are never wiped.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -115,6 +116,156 @@ def list_addons(session: Session) -> list[Addon]:
     return list(
         session.exec(select(Addon).order_by(col(Addon.created_at).desc())).all()
     )
+
+
+def _is_stock_pack(folder_name: str, pack_name: str) -> bool:
+    """Skip Mojang stock packs when importing from a live /data tree."""
+
+    lowered = f"{folder_name} {pack_name}".lower()
+    stock_markers = (
+        "vanilla",
+        "chemistry",
+        "editor",
+        "experimental",
+        "education",
+        "castomatic",
+    )
+    return any(marker in lowered for marker in stock_markers)
+
+
+def import_packs_from_server_data(session: Session, settings: Settings) -> int:
+    """Register custom packs already under `/data` into the MineForge library.
+
+    Scans behavior/resource (+ development) pack folders, copies non-stock packs
+    into `/app-data/packs`, and links world_*_packs.json entries to WorldAddon rows.
+
+    Returns:
+        Number of newly imported library rows.
+    """
+
+    roots = [
+        settings.data_dir / "behavior_packs",
+        settings.data_dir / "resource_packs",
+        settings.data_dir / "development_behavior_packs",
+        settings.data_dir / "development_resource_packs",
+    ]
+    created = 0
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for child in sorted(root.iterdir()):
+            if not child.is_dir() or not (child / "manifest.json").is_file():
+                continue
+            try:
+                parsed = parse_manifest(child)
+            except AppError:
+                continue
+            if _is_stock_pack(child.name, parsed.name):
+                continue
+            existing = session.exec(
+                select(Addon).where(
+                    Addon.pack_uuid == parsed.pack_uuid,
+                    Addon.version == parsed.version,
+                    Addon.kind == parsed.kind,
+                )
+            ).first()
+            if existing:
+                continue
+            digest = hashlib.sha256(
+                f"server:{parsed.pack_uuid}:{parsed.version}:{parsed.kind.value}".encode()
+            ).hexdigest()
+            storage_rel = f"{digest}/{parsed.pack_uuid}"
+            storage = packs_library_dir(settings) / storage_rel
+            if storage.exists():
+                shutil.rmtree(storage)
+            storage.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(child, storage, symlinks=False)
+            addon = Addon(
+                name=parsed.name,
+                pack_uuid=parsed.pack_uuid,
+                version=parsed.version,
+                kind=parsed.kind,
+                source_filename=child.name,
+                sha256=digest,
+                size_bytes=dir_size(storage),
+                missing_pair=False,
+                encrypted=parsed.encrypted,
+                needs_beta_apis=parsed.needs_beta_apis,
+                uploaded_by=None,
+                storage_path=storage_rel,
+                notes=f"Imported from server data ({root.name}/{child.name})",
+            )
+            session.add(addon)
+            session.flush()
+            created += 1
+
+    if created:
+        _refresh_pairing(session)
+    _sync_world_pack_links(session, settings)
+    session.commit()
+    if created:
+        logger.info("Imported %s pack(s) from server /data into the library", created)
+    return created
+
+
+def _sync_world_pack_links(session: Session, settings: Settings) -> None:
+    """Ensure WorldAddon rows exist for packs listed in each world's pack JSON."""
+
+    worlds = list(session.exec(select(World)).all())
+    for world in worlds:
+        folder = worlds_service.world_path(settings, world.folder_name)
+        if not folder.is_dir() or world.id is None:
+            continue
+        order = 0
+        for json_name in ("world_behavior_packs.json", "world_resource_packs.json"):
+            path = folder / json_name
+            if not path.is_file():
+                continue
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(payload, list):
+                continue
+            for entry in payload:
+                if not isinstance(entry, dict):
+                    continue
+                pack_id = str(entry.get("pack_id") or entry.get("uuid") or "").lower()
+                if not pack_id:
+                    continue
+                version_raw = entry.get("version") or [1, 0, 0]
+                if isinstance(version_raw, list):
+                    version = ".".join(str(int(x)) for x in version_raw[:3])
+                else:
+                    version = str(version_raw)
+                addon = session.exec(
+                    select(Addon).where(
+                        Addon.pack_uuid == pack_id,
+                        Addon.version == version,
+                    )
+                ).first()
+                if addon is None:
+                    addon = session.exec(
+                        select(Addon).where(Addon.pack_uuid == pack_id)
+                    ).first()
+                if addon is None or addon.id is None:
+                    continue
+                link = session.exec(
+                    select(WorldAddon).where(
+                        WorldAddon.world_id == world.id,
+                        WorldAddon.addon_id == addon.id,
+                    )
+                ).first()
+                if link is None:
+                    session.add(
+                        WorldAddon(
+                            world_id=world.id,
+                            addon_id=addon.id,
+                            enabled=True,
+                            load_order=order,
+                        )
+                    )
+                order += 1
 
 
 def get_addon(session: Session, addon_id: int) -> Addon:

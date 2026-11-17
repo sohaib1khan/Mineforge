@@ -48,14 +48,14 @@ Useful extras:
 
 ## Already running Bedrock?
 
-Keep your existing container. In `deploy/.env`:
+On the same Docker host:
 
 ```bash
-MINEFORGE_BEDROCK_CONTAINER=bedrock
-BEDROCK_DATA_HOST_PATH=/absolute/path/to/your/minecraft/data
+./deploy/mf attach    # auto-detects the Bedrock container's /data mount
+# or: ./deploy/mf up  # same detection on start
 ```
 
-Then `./deploy/mf up` (**not** `up bedrock`). Worlds / allowlist / properties come from that shared folder; start/stop/console talk to the named container.
+That writes `BEDROCK_DATA_HOST_PATH` for you. Worlds, allowlist, properties, and custom packs come from that folder; start/stop/console talk to the container named `MINEFORGE_BEDROCK_CONTAINER` (default `bedrock`).
 
 Details: [docs/migrating-from-itzg.md](./docs/migrating-from-itzg.md).
 

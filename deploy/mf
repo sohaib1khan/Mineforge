@@ -9,19 +9,8 @@ TEST_COMPOSE=(docker compose -f "$DEPLOY/docker-compose.test.yml")
 
 die() { echo "error: $*" >&2; exit 1; }
 
-ensure_env() {
-  if [[ ! -f "$DEPLOY/.env" ]]; then
-    echo "Creating deploy/.env from .env.example …"
-    cp "$DEPLOY/.env.example" "$DEPLOY/.env"
-    # Replace CHANGE_ME secret with a random value for local Docker.
-    if command -v openssl >/dev/null 2>&1; then
-      local key
-      key="$(openssl rand -hex 32)"
-      sed -i "s/^MINEFORGE_SECRET_KEY=.*/MINEFORGE_SECRET_KEY=${key}/" "$DEPLOY/.env"
-    fi
-    echo "Wrote $DEPLOY/.env — review before production use."
-  fi
-  # Load selected vars without evaluating shell metacharacters in values.
+load_env_vars() {
+  [[ -f "$DEPLOY/.env" ]] || return 0
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
     local key="${line%%=*}"
@@ -38,6 +27,78 @@ ensure_env() {
   done < "$DEPLOY/.env"
 }
 
+upsert_env() {
+  local key="$1"
+  local val="$2"
+  if grep -q "^${key}=" "$DEPLOY/.env" 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${val}|" "$DEPLOY/.env"
+  else
+    printf '\n%s=%s\n' "$key" "$val" >> "$DEPLOY/.env"
+  fi
+  export "${key}=${val}"
+}
+
+# Discover the host path already mounted at /data on the live Bedrock container,
+# or fall back to common ~/minecraft/data layouts.
+detect_bedrock_data_path() {
+  local name="${MINEFORGE_BEDROCK_CONTAINER:-bedrock}"
+  local path=""
+
+  if [[ -n "${BEDROCK_DATA_HOST_PATH:-}" ]]; then
+    if [[ -d "${BEDROCK_DATA_HOST_PATH}" ]]; then
+      echo "==> Using BEDROCK_DATA_HOST_PATH=${BEDROCK_DATA_HOST_PATH}"
+      return 0
+    fi
+    echo "warning: BEDROCK_DATA_HOST_PATH=${BEDROCK_DATA_HOST_PATH} is missing on disk — re-detecting" >&2
+  fi
+
+  if docker inspect "$name" >/dev/null 2>&1; then
+    path="$(
+      docker inspect "$name" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{println}}{{end}}{{end}}' \
+        | head -n1 | tr -d '\r'
+    )"
+    if [[ -n "$path" && -d "$path" ]]; then
+      upsert_env BEDROCK_DATA_HOST_PATH "$path"
+      echo "==> Auto-detected Bedrock /data from container '${name}': ${path}"
+      return 0
+    fi
+  fi
+
+  local candidate
+  for candidate in \
+    "${HOME}/minecraft/data" \
+    /home/mcvm/minecraft/data \
+    "${HOME}/bedrock/data" \
+    /opt/minecraft/data
+  do
+    if [[ -d "${candidate}/worlds" || -f "${candidate}/server.properties" ]]; then
+      upsert_env BEDROCK_DATA_HOST_PATH "$candidate"
+      echo "==> Auto-detected Bedrock data at ${candidate}"
+      return 0
+    fi
+  done
+
+  echo "warning: could not auto-detect Bedrock data." >&2
+  echo "         Set BEDROCK_DATA_HOST_PATH in deploy/.env to your server's data folder" >&2
+  echo "         (the host path mounted as /data on the Bedrock container)." >&2
+  return 1
+}
+
+ensure_env() {
+  if [[ ! -f "$DEPLOY/.env" ]]; then
+    echo "Creating deploy/.env from .env.example …"
+    cp "$DEPLOY/.env.example" "$DEPLOY/.env"
+    # Replace CHANGE_ME secret with a random value for local Docker.
+    if command -v openssl >/dev/null 2>&1; then
+      local key
+      key="$(openssl rand -hex 32)"
+      sed -i "s/^MINEFORGE_SECRET_KEY=.*/MINEFORGE_SECRET_KEY=${key}/" "$DEPLOY/.env"
+    fi
+    echo "Wrote $DEPLOY/.env — review before production use."
+  fi
+  load_env_vars
+}
+
 cmd_test() {
   echo "==> Backend tests (Docker)"
   "${TEST_COMPOSE[@]}" build backend-test
@@ -52,12 +113,13 @@ cmd_test() {
 
 cmd_up() {
   ensure_env
-  local profile_args=()
-  if [[ "${1:-}" == "bedrock" ]]; then
-    profile_args=(--profile bedrock)
+  # Attach existing server data before compose so the bind mount is applied.
+  if [[ "${1:-}" != "bedrock" ]]; then
+    detect_bedrock_data_path || true
+    load_env_vars
   fi
   echo "==> Building and starting MineForge"
-  "${COMPOSE[@]}" up -d --build socket-proxy mineforge
+  "${COMPOSE[@]}" up -d --build --force-recreate socket-proxy mineforge
   if [[ "${1:-}" == "bedrock" ]]; then
     "${COMPOSE[@]}" --profile bedrock up -d --build bedrock
   fi
@@ -71,7 +133,7 @@ cmd_up() {
   if [[ -n "${BEDROCK_DATA_HOST_PATH:-}" ]]; then
     echo "==> Bedrock data bind: ${BEDROCK_DATA_HOST_PATH} → /data"
   else
-    echo "==> Bedrock data: Compose volume bedrock-data (set BEDROCK_DATA_HOST_PATH to attach an existing server)"
+    echo "==> Bedrock data: Compose volume bedrock-data (no existing server path detected)"
   fi
   echo "==> Waiting for health"
   local i
@@ -85,6 +147,15 @@ cmd_up() {
         echo "==> First-run setup required — open the UI and create the admin account."
       else
         echo "==> Admin already exists — open the UI and sign in."
+      fi
+      local worlds
+      worlds="$(docker exec mineforge-mineforge-1 sh -c 'ls -1 /data/worlds 2>/dev/null | wc -l' | tr -d '[:space:]')"
+      if [[ "${worlds:-0}" == "0" ]]; then
+        echo "warning: /data/worlds is empty inside the app container." >&2
+        echo "         Existing worlds will not appear until BEDROCK_DATA_HOST_PATH points at your real data." >&2
+        echo "         Example: BEDROCK_DATA_HOST_PATH=/home/mcvm/minecraft/data" >&2
+      else
+        echo "==> Found ${worlds} world folder(s) under /data/worlds"
       fi
       return 0
     fi
@@ -157,7 +228,8 @@ MineForge Docker helper
 Usage: $0 <command>
 
   test         Run backend + frontend tests in Docker
-  up [bedrock] Build & start app (optional Bedrock profile)
+  up [bedrock] Build & start app (auto-detects existing Bedrock /data)
+  attach       Detect Bedrock data path, write deploy/.env, recreate app
   reset        Wipe app DB volume and force first-run setup UI
   down         Stop stack
   logs         Follow app logs
@@ -166,12 +238,25 @@ Usage: $0 <command>
 EOF
 }
 
+cmd_attach() {
+  ensure_env
+  detect_bedrock_data_path || die "could not detect Bedrock data — set BEDROCK_DATA_HOST_PATH manually"
+  load_env_vars
+  echo "==> Recreating MineForge with BEDROCK_DATA_HOST_PATH=${BEDROCK_DATA_HOST_PATH}"
+  "${COMPOSE[@]}" up -d --build --force-recreate mineforge
+  sleep 2
+  echo "==> /data/worlds:"
+  docker exec mineforge-mineforge-1 ls -la /data/worlds || true
+  echo "Open the UI → Worlds / Add-ons / Server should reflect this folder."
+}
+
 main() {
   local cmd="${1:-}"
   shift || true
   case "$cmd" in
     test) cmd_test "$@" ;;
     up) cmd_up "$@" ;;
+    attach) cmd_attach "$@" ;;
     reset) cmd_reset "$@" ;;
     down) cmd_down "$@" ;;
     logs) cmd_logs "$@" ;;
