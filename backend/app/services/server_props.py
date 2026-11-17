@@ -282,9 +282,17 @@ def _write_raw(
 
 
 def _atomic_write(path: Path, content: str, *, uid: int, gid: int) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".server.props.")
-    tmp_path = Path(tmp_name)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".server.props.")
+        tmp_path = Path(tmp_name)
+    except OSError as exc:
+        raise AppError(
+            f"Cannot write server.properties: {exc}. "
+            "MineForge must run as the same UID/GID that owns the Bedrock data "
+            "directory (set BEDROCK_UID/BEDROCK_GID).",
+            status_code=500,
+        ) from exc
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(content)
@@ -299,6 +307,13 @@ def _atomic_write(path: Path, content: str, *, uid: int, gid: int) -> None:
             os.chown(path, uid, gid)
         except PermissionError:
             logger.warning("Could not chown %s to %s:%s", path, uid, gid)
+    except OSError as exc:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+        raise AppError(
+            f"Failed to update server.properties: {exc}",
+            status_code=500,
+        ) from exc
     except Exception:
         if tmp_path.exists():
             tmp_path.unlink(missing_ok=True)

@@ -39,10 +39,25 @@ def _read_json_list(path: Path) -> list[dict[str, Any]]:
 def _atomic_write_json(
     path: Path, payload: list[dict[str, Any]], *, uid: int, gid: int
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(payload, indent=2) + "\n"
-    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.")
-    tmp_path = Path(tmp_name)
+    """Atomically rewrite a JSON list file under /data.
+
+    Raises:
+        AppError: if the data directory is not writable (common when the app
+            UID does not match the Bedrock data owner).
+    """
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = json.dumps(payload, indent=2) + "\n"
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.")
+        tmp_path = Path(tmp_name)
+    except OSError as exc:
+        raise AppError(
+            f"Cannot write {path.name}: {exc}. "
+            "MineForge must run as the same UID/GID that owns the Bedrock data "
+            "directory (set BEDROCK_UID/BEDROCK_GID or MINEFORGE_RUNTIME_UID/GID).",
+            status_code=500,
+        ) from exc
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(text)
@@ -57,6 +72,13 @@ def _atomic_write_json(
             os.chown(path, uid, gid)
         except PermissionError:
             logger.warning("Could not chown %s", path)
+    except OSError as exc:
+        tmp_path.unlink(missing_ok=True)
+        raise AppError(
+            f"Failed to update {path.name}: {exc}. "
+            "Check that /data is writable by the MineForge runtime user.",
+            status_code=500,
+        ) from exc
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise

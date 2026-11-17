@@ -30,7 +30,7 @@ function formatBytes(n: number): string {
 function flagLabel(flag: string): string {
   switch (flag) {
     case "missing_pair":
-      return "Missing behavior pack";
+      return "Depends on a behavior pack that is not in the library";
     case "encrypted":
       return "Encrypted / Marketplace";
     case "needs_beta_apis":

@@ -34,12 +34,13 @@
 - Reset passwords (user must change password on next login when created/reset).
 - Deactivate or delete accounts.
 
-## Worlds
+## Worlds (switch here)
 
-- Browse worlds discovered under the Bedrock data directory.
-- **Switch** to another world: MineForge warns in-game, backs up the current world, stops the server, changes `level-name`, starts, and health-checks.
-- If the new world fails to come up, MineForge rolls back to the previous world automatically.
-- While other players are online, either everyone approves a switch request (2 minutes) or an admin **Force switch**.
+- Open **Worlds** in the nav (sidebar or phone bottom bar).
+- The active world is labeled **Active**. On any other world, tap **Switch**.
+- MineForge warns in-game, backs up the current world, stops Bedrock, changes `level-name`, starts, and health-checks.
+- If the new world fails to come up, it rolls back automatically.
+- While other players are online, either everyone approves (2 minutes) or an admin **Force switch**.
 - Admins can create, import `.mcworld`, export, rename, clone, and delete (not the active world).
 
 ## Backups

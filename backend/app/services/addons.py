@@ -170,6 +170,9 @@ def import_packs_from_server_data(session: Session, settings: Settings) -> int:
                 )
             ).first()
             if existing:
+                if _looks_like_lang_key(existing.name) and parsed.name != existing.name:
+                    existing.name = parsed.name
+                    session.add(existing)
                 continue
             digest = hashlib.sha256(
                 f"server:{parsed.pack_uuid}:{parsed.version}:{parsed.kind.value}".encode()
@@ -199,13 +202,40 @@ def import_packs_from_server_data(session: Session, settings: Settings) -> int:
             session.flush()
             created += 1
 
-    if created:
-        _refresh_pairing(session)
+    _repair_localized_names(session, settings)
+    _refresh_pairing(session, settings)
     _sync_world_pack_links(session, settings)
     session.commit()
     if created:
         logger.info("Imported %s pack(s) from server /data into the library", created)
     return created
+
+
+def _looks_like_lang_key(name: str) -> bool:
+    cleaned = (name or "").strip()
+    return (
+        (not cleaned)
+        or cleaned.startswith("pack.")
+        or cleaned in {"name", "description"}
+    )
+
+
+def _repair_localized_names(session: Session, settings: Settings) -> None:
+    """Fix library rows that still store localization keys as the display name."""
+
+    for addon in session.exec(select(Addon)).all():
+        if not _looks_like_lang_key(addon.name):
+            continue
+        root = packs_library_dir(settings) / addon.storage_path
+        if not root.is_dir():
+            continue
+        try:
+            parsed = parse_manifest(root)
+        except AppError:
+            continue
+        if parsed.name and parsed.name != addon.name:
+            addon.name = parsed.name
+            session.add(addon)
 
 
 def _sync_world_pack_links(session: Session, settings: Settings) -> None:
@@ -397,7 +427,7 @@ def upload_addon(
         session.commit()
         for addon in created:
             session.refresh(addon)
-        _refresh_pairing(session)
+        _refresh_pairing(session, settings)
         session.commit()
         for addon in created:
             session.refresh(addon)
@@ -448,7 +478,7 @@ def delete_addon(
     session.commit()
     if storage.is_dir():
         shutil.rmtree(storage, ignore_errors=True)
-    _refresh_pairing(session)
+    _refresh_pairing(session, settings)
     session.commit()
 
 
@@ -760,7 +790,8 @@ def parse_manifest(pack_root: Path) -> ParsedPack:
         raise AppError(f"Invalid manifest.json: {exc}") from exc
 
     header = data.get("header") or {}
-    name = str(header.get("name") or pack_root.name)
+    raw_name = str(header.get("name") or "").strip()
+    name = _resolve_pack_display_name(pack_root, raw_name)
     pack_uuid = str(header.get("uuid") or "").strip()
     if not UUID_RE.match(pack_uuid):
         raise AppError("manifest header.uuid is missing or invalid")
@@ -781,7 +812,7 @@ def parse_manifest(pack_root: Path) -> ParsedPack:
     deps: list[str] = []
     for dep in data.get("dependencies") or []:
         if isinstance(dep, dict) and dep.get("uuid"):
-            deps.append(str(dep["uuid"]))
+            deps.append(str(dep["uuid"]).lower())
 
     return ParsedPack(
         name=name,
@@ -794,6 +825,43 @@ def parse_manifest(pack_root: Path) -> ParsedPack:
         dependencies=deps,
         root=pack_root,
     )
+
+
+def _resolve_pack_display_name(pack_root: Path, raw_name: str) -> str:
+    """Resolve localization keys like ``pack.name`` via texts/*.lang."""
+
+    key = raw_name.strip() if raw_name else "pack.name"
+    looks_like_key = (
+        (not key) or key.startswith("pack.") or key in {"name", "description"}
+    )
+    if not looks_like_key:
+        return key
+
+    texts_dir = pack_root / "texts"
+    candidates: list[Path] = []
+    if texts_dir.is_dir():
+        for preferred in ("en_US.lang", "en_GB.lang", "en_US.lang.json"):
+            path = texts_dir / preferred
+            if path.is_file():
+                candidates.append(path)
+        candidates.extend(sorted(texts_dir.glob("*.lang")))
+
+    for path in candidates:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            lang_key, _, value = line.partition("=")
+            if lang_key.strip() == key and value.strip():
+                return value.strip()
+
+    # Fall back to folder name rather than showing "pack.name" in the UI.
+    folder = pack_root.name.replace("_", " ").strip()
+    return folder or key or "Unnamed pack"
 
 
 def _run_apply(
@@ -1062,14 +1130,25 @@ def _detect_beta_apis(manifest: dict[str, Any], modules: list[Any]) -> bool:
     return False
 
 
-def _refresh_pairing(session: Session) -> None:
+def _refresh_pairing(session: Session, settings: Settings | None = None) -> None:
+    """Pair BP/RP halves and flag only *unmet* behavior-pack dependencies.
+
+    Standalone resource packs (furniture, cars, textures) are normal and must
+    not show "Missing behavior pack" unless their manifest depends on a BP
+    UUID that is not in the library.
+    """
+
     addons = list(session.exec(select(Addon)).all())
-    # Pair opposite kinds that share source sha256 (same upload) first
+    by_uuid: dict[str, list[Addon]] = {}
+    for addon in addons:
+        by_uuid.setdefault(addon.pack_uuid.lower(), []).append(addon)
+
+    paired_ids: set[int] = set()
+
+    # 1) Pair opposite kinds that share source sha256 (same .mcaddon upload).
     by_sha: dict[str, list[Addon]] = {}
     for addon in addons:
         by_sha.setdefault(addon.sha256, []).append(addon)
-
-    paired_ids: set[int] = set()
     for group in by_sha.values():
         bps = [a for a in group if a.kind == AddonKind.BEHAVIOR]
         rps = [a for a in group if a.kind == AddonKind.RESOURCE]
@@ -1083,6 +1162,31 @@ def _refresh_pairing(session: Session) -> None:
             paired_ids.add(bps[0].id)
             paired_ids.add(rps[0].id)
 
+    # 2) Pair via manifest dependency UUIDs when settings are available.
+    if settings is not None:
+        for addon in addons:
+            if addon.id in paired_ids or addon.kind != AddonKind.RESOURCE:
+                continue
+            for dep in _addon_dependency_uuids(settings, addon):
+                candidates = [
+                    a
+                    for a in by_uuid.get(dep, [])
+                    if a.kind == AddonKind.BEHAVIOR and a.id is not None
+                ]
+                if len(candidates) != 1:
+                    continue
+                bp = candidates[0]
+                addon.pair_addon_id = bp.id
+                bp.pair_addon_id = addon.id
+                addon.missing_pair = False
+                bp.missing_pair = False
+                session.add(addon)
+                session.add(bp)
+                if addon.id is not None:
+                    paired_ids.add(addon.id)
+                paired_ids.add(bp.id)
+                break
+
     for addon in addons:
         if addon.id in paired_ids:
             continue
@@ -1093,13 +1197,27 @@ def _refresh_pairing(session: Session) -> None:
                 session.add(addon)
                 continue
             addon.pair_addon_id = None
-        # Resource-only → missing behavior pack warning
-        if addon.kind == AddonKind.RESOURCE:
-            addon.missing_pair = True
-            session.add(addon)
+
+        # Only warn when a resource pack *declares* a BP dependency we lack.
+        if addon.kind == AddonKind.RESOURCE and settings is not None:
+            deps = _addon_dependency_uuids(settings, addon)
+            bp_uuids = {
+                a.pack_uuid.lower() for a in addons if a.kind == AddonKind.BEHAVIOR
+            }
+            addon.missing_pair = bool(deps) and any(d not in bp_uuids for d in deps)
         else:
             addon.missing_pair = False
-            session.add(addon)
+        session.add(addon)
+
+
+def _addon_dependency_uuids(settings: Settings, addon: Addon) -> list[str]:
+    root = packs_library_dir(settings) / addon.storage_path
+    if not root.is_dir():
+        return []
+    try:
+        return list(parse_manifest(root).dependencies)
+    except AppError:
+        return []
 
 
 def _version_list(version: str) -> list[int]:

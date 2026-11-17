@@ -101,8 +101,9 @@ export function WorldsPage() {
       <div className="space-y-2">
         <h1 className="font-pixel text-2xl text-text">Worlds</h1>
         <p className="max-w-xl text-muted leading-relaxed">
-          Library of Bedrock worlds. Switching backs up the current world and rolls back
-          automatically if the new one fails to start.
+          This is where you switch worlds. Tap <strong>Switch</strong> on any non-active
+          world — MineForge backs up the current one and rolls back automatically if the
+          new world fails to start.
         </p>
       </div>
 

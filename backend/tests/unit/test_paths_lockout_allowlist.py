@@ -68,6 +68,26 @@ def test_allowlist_and_permissions(
     clear_settings_cache()
 
 
+def test_allowlist_write_permission_error_is_app_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.core.errors import AppError
+
+    data = tmp_path / "ro-data"
+    data.mkdir()
+    data.chmod(0o555)
+    monkeypatch.setenv("MINEFORGE_DATA_DIR", str(data))
+    monkeypatch.setenv("MINEFORGE_SECRET_KEY", "test-secret-key-not-real")
+    clear_settings_cache()
+    settings = get_settings()
+    try:
+        with pytest.raises(AppError, match="Cannot write allowlist"):
+            allowlist_service.add_allowlist_entry(settings, name="player_one")
+    finally:
+        data.chmod(0o755)
+        clear_settings_cache()
+
+
 def test_help_guides_packaged() -> None:
     guides = help_guides.list_guides()
     assert len(guides) >= 5

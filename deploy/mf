@@ -20,7 +20,7 @@ load_env_vars() {
     val="${val%\'}"
     val="${val#\'}"
     case "$key" in
-      MINEFORGE_HOST_PORT|MINEFORGE_PUBLIC_URL|MINEFORGE_COOKIE_SECURE|BEDROCK_DATA_HOST_PATH|MINEFORGE_BEDROCK_CONTAINER)
+      MINEFORGE_HOST_PORT|MINEFORGE_PUBLIC_URL|MINEFORGE_COOKIE_SECURE|BEDROCK_DATA_HOST_PATH|MINEFORGE_BEDROCK_CONTAINER|BEDROCK_UID|BEDROCK_GID|MINEFORGE_RUNTIME_UID|MINEFORGE_RUNTIME_GID)
         export "$key=$val"
         ;;
     esac
@@ -116,6 +116,14 @@ cmd_up() {
   # Attach existing server data before compose so the bind mount is applied.
   if [[ "${1:-}" != "bedrock" ]]; then
     detect_bedrock_data_path || true
+    load_env_vars
+    # Default runtime UID to Bedrock ownership so /data writes succeed.
+    if [[ -z "${MINEFORGE_RUNTIME_UID:-}" ]]; then
+      upsert_env MINEFORGE_RUNTIME_UID "${BEDROCK_UID:-1000}"
+    fi
+    if [[ -z "${MINEFORGE_RUNTIME_GID:-}" ]]; then
+      upsert_env MINEFORGE_RUNTIME_GID "${BEDROCK_GID:-1000}"
+    fi
     load_env_vars
   fi
   echo "==> Building and starting MineForge"

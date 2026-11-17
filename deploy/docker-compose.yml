@@ -66,6 +66,9 @@ services:
       MINEFORGE_BEDROCK_CONTAINER: ${MINEFORGE_BEDROCK_CONTAINER:-bedrock}
       MINEFORGE_BEDROCK_UID: ${BEDROCK_UID:-1000}
       MINEFORGE_BEDROCK_GID: ${BEDROCK_GID:-1000}
+      # Match Bedrock file ownership so allowlist/server.properties writes work.
+      MINEFORGE_RUNTIME_UID: ${MINEFORGE_RUNTIME_UID:-1000}
+      MINEFORGE_RUNTIME_GID: ${MINEFORGE_RUNTIME_GID:-1000}
     volumes:
       - mineforge-data:/app-data
       # Host path (bind) when attaching an existing server, else named volume.
@@ -81,6 +84,12 @@ services:
       - /tmp:size=128m,mode=1777
     cap_drop:
       - ALL
+    # Entrypoint needs these to chown /app-data and drop to the runtime UID.
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - FOWNER
     security_opt:
       - no-new-privileges:true
 

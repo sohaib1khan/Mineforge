@@ -45,7 +45,10 @@ WORKDIR /app
 
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin appuser \
     && mkdir -p /app-data /data \
-    && chown appuser:appuser /app-data /data
+    && chown appuser:appuser /app-data /data \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY backend/pyproject.toml ./backend/
 COPY backend/app ./backend/app
@@ -55,10 +58,14 @@ RUN pip install --no-cache-dir ./backend \
     && chown -R appuser:appuser /app
 
 COPY --from=frontend-build /build/dist /app/static
+COPY deploy/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-USER appuser
+# Entrypoint starts as root to fix /app-data ownership, then drops to runtime UID.
+USER root
 EXPOSE 8080
 WORKDIR /app/backend
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3)"
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

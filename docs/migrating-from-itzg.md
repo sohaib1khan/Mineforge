@@ -45,6 +45,8 @@ Then:
 
 Do **not** run `./deploy/mf up bedrock` while your existing Bedrock compose is already running.
 
+Also set `BEDROCK_UID` / `BEDROCK_GID` (and/or `MINEFORGE_RUNTIME_UID` / `MINEFORGE_RUNTIME_GID`) to the owner of that data folder — usually `1000`. Otherwise allowlist / `server.properties` saves return Internal Server Error (permission denied).
+
 ## What gets picked up
 
 | From shared `/data` | Where it shows |
