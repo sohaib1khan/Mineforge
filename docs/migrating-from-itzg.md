@@ -1,65 +1,57 @@
 # Attaching MineForge to an existing Bedrock server
 
-Use this when `itzg/minecraft-bedrock-server` (or compatible) is **already running** and you want the panel without replacing that container.
+Yes — MineForge can manage an already-running Bedrock container **and** show its worlds, allowlist, packs on disk, and `server.properties`. That only works when the panel mounts the **same** host data directory Bedrock uses.
 
 ## What MineForge needs
 
 | Piece | Role |
 |---|---|
-| Shared `/data` | Same host folder/volume Bedrock uses (`worlds/`, `server.properties`, packs, allowlist) |
-| `/app-data` volume | MineForge DB, backups, pack library (separate from Bedrock) |
-| Docker access via socket-proxy | Start/stop/restart, logs, console, stats for **one** container name |
-| `MINEFORGE_BEDROCK_CONTAINER` | Exact Docker name (your `docker ps` Name column; often `bedrock`) |
+| Shared `/data` | Same host folder Bedrock uses (`worlds/`, `server.properties`, packs, allowlist) |
+| `/app-data` volume | MineForge DB, backups, pack *library* (separate from Bedrock) |
+| Docker via socket-proxy | Start/stop/restart, logs, console, stats for one container |
+| `MINEFORGE_BEDROCK_CONTAINER` | Exact name from `docker ps` (often `bedrock`) |
 
-MineForge does not auto-discover servers on the LAN. It attaches by container name + shared data dir.
+Without the shared data mount you still get **container** status/logs, but **Worlds / allowlist / properties** will not match the live server (empty named volume).
 
 ## Sidecar deploy (keep Bedrock running)
 
-1. On the same Docker host, clone MineForge and create `deploy/.env` from `.env.example`.
-2. Set:
+1. Find the data path Bedrock already mounts, e.g. `/home/mcvm/minecraft/data`.
+2. Clone MineForge, copy `deploy/.env.example` → `deploy/.env`, set:
    ```bash
-   MINEFORGE_BEDROCK_CONTAINER=bedrock   # must match `docker ps` name
-   BEDROCK_UID=1000                      # match your Bedrock UID/GID
+   MINEFORGE_BEDROCK_CONTAINER=bedrock
+   BEDROCK_DATA_HOST_PATH=/home/mcvm/minecraft/data
+   BEDROCK_UID=1000
    BEDROCK_GID=1000
    ```
-3. Bind-mount your existing data into the **mineforge** service (do **not** use a fresh named volume if you want the live worlds). In `deploy/docker-compose.yml`:
-   ```yaml
-   volumes:
-     - mineforge-data:/app-data
-     - /home/mcvm/minecraft/data:/data   # ← your real Bedrock /data path
-   ```
-4. Start **only** the panel (no Bedrock profile):
+3. Start **only** the panel:
    ```bash
    ./deploy/mf up
    ```
-   Do **not** run `./deploy/mf up bedrock` — that would start a second Bedrock.
-5. Confirm the proxy is healthy:
+   Do **not** run `./deploy/mf up bedrock` (that starts a second Bedrock).
+4. Confirm:
    ```bash
-   docker ps --filter name=mineforge-socket-proxy
-   # STATUS should be Up (healthy), not Restarting
+   docker ps --filter name=mineforge-socket-proxy   # Up, not Restarting
+   docker exec mineforge-mineforge-1 ls /data/worlds
    ```
-6. Open the UI → **Server** should show status for container `bedrock`. **Worlds** lists folders under your mounted `/data/worlds`.
+   The `ls` should list your real world folders.
+5. UI → **Worlds** should list those folders; **Server** allowlist/properties should match the live files.
+
+### Pack library vs packs already on the server
+
+- Packs already under `/data/behavior_packs` and `/data/resource_packs` stay on the server.
+- MineForge’s **Add-ons** library lives in `/app-data/packs`. Upload there when you want the panel to manage apply/test/revert. Existing uploads on the host (e.g. `~/minecraft/uploads`) are not auto-imported.
 
 ### When you next recreate Bedrock
 
-Remove gameplay env overrides so itzg does not overwrite `server.properties` on restart:
+Remove gameplay env overrides so itzg does not overwrite `server.properties`:
 
 - Keep: `EULA`, `VERSION` (pinned), `UID`, `GID`, `TZ`, `TRANSPORT`, `SERVER_PORT`, `SERVER_UDP_PORTS`
 - Remove: `LEVEL_NAME`, `GAMEMODE`, `DIFFICULTY`, and similar gameplay keys
 
 ## Full cutover (optional)
 
-If you prefer MineForge’s compose to own Bedrock:
-
-1. Stop your old Bedrock container (keep the data directory).
-2. Point MineForge’s `bedrock` service at the same bind/volume.
-3. `./deploy/mf up bedrock`
-
-## Player / allowlist notes
-
-- Existing `allowlist.json` / `permissions.json` under `/data` are edited in place.
-- Gamertags must match exactly.
+Point MineForge’s `bedrock` profile at the same `BEDROCK_DATA_HOST_PATH`, stop your old compose Bedrock, then `./deploy/mf up bedrock`.
 
 ## Rollback
 
-Keep your previous compose file. Point Bedrock at the same `/data` path if you leave MineForge temporarily. See [restore-drill.md](./restore-drill.md).
+Keep your previous compose. Point Bedrock at the same data path if you leave MineForge temporarily. See [restore-drill.md](./restore-drill.md).

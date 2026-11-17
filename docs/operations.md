@@ -79,5 +79,5 @@ UI: http://localhost:18080 (`MINEFORGE_HOST_PORT`).
 
 ## Volumes
 
-- `mineforge-data` → `/app-data` (DB + `/app-data/backups`)
-- `bedrock-data` → `/data`
+- `mineforge-data` → `/app-data` (DB + `/app-data/backups` + pack library)
+- `/data` ← `BEDROCK_DATA_HOST_PATH` (bind) **or** named volume `bedrock-data`

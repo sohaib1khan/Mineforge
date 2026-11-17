@@ -1,5 +1,6 @@
 """Log line parsing unit tests (fake gamertags only)."""
 
+from app.services.docker_client import iter_log_lines
 from app.services.logwatch import parse_log_line
 
 
@@ -19,3 +20,9 @@ def test_parse_join_and_leave() -> None:
 
 def test_parse_server_started() -> None:
     assert parse_log_line("Server started.") == ("started", {})
+
+
+def test_iter_log_lines_buffers_single_byte_chunks() -> None:
+    chunks = [b for b in b"Server started.\nPlayer connected: player_one\n"]
+    lines = list(iter_log_lines(chunks))
+    assert lines == ["Server started.", "Player connected: player_one"]

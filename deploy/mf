@@ -31,7 +31,7 @@ ensure_env() {
     val="${val%\'}"
     val="${val#\'}"
     case "$key" in
-      MINEFORGE_HOST_PORT|MINEFORGE_PUBLIC_URL|MINEFORGE_COOKIE_SECURE)
+      MINEFORGE_HOST_PORT|MINEFORGE_PUBLIC_URL|MINEFORGE_COOKIE_SECURE|BEDROCK_DATA_HOST_PATH|MINEFORGE_BEDROCK_CONTAINER)
         export "$key=$val"
         ;;
     esac
@@ -67,6 +67,11 @@ cmd_up() {
     echo "error: socket-proxy is not running — Server/Docker controls will fail." >&2
     docker logs --tail=80 mineforge-socket-proxy-1 >&2 || true
     die "socket-proxy failed to stay up; fix the logs above, then re-run $0 up"
+  fi
+  if [[ -n "${BEDROCK_DATA_HOST_PATH:-}" ]]; then
+    echo "==> Bedrock data bind: ${BEDROCK_DATA_HOST_PATH} → /data"
+  else
+    echo "==> Bedrock data: Compose volume bedrock-data (set BEDROCK_DATA_HOST_PATH to attach an existing server)"
   fi
   echo "==> Waiting for health"
   local i

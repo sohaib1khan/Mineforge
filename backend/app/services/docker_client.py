@@ -415,22 +415,46 @@ class DockerSdkClient:
             raise AppError(f"Failed to send command: {exc}", status_code=502) from exc
 
     def follow_logs(self, since: datetime | None = None):
-        """Yield log lines from the Bedrock container (blocking generator)."""
+        """Yield complete log lines from the Bedrock container.
+
+        Docker often delivers one byte (or partial UTF-8) per chunk when
+        ``stream=True``. Buffer until newlines so the console UI does not
+        render a separate row per character.
+        """
 
         container = self._get_container()
-        kwargs: dict[str, Any] = {"stream": True, "follow": True, "timestamps": False}
+        kwargs: dict[str, Any] = {
+            "stream": True,
+            "follow": True,
+            "timestamps": False,
+            "stdout": True,
+            "stderr": True,
+        }
         if since is not None:
             if since.tzinfo is None:
                 since = since.replace(tzinfo=UTC)
             kwargs["since"] = int(since.timestamp())
         try:
-            for chunk in container.logs(**kwargs):
-                if isinstance(chunk, bytes):
-                    text = chunk.decode("utf-8", errors="replace")
-                else:
-                    text = str(chunk)
-                for line in text.splitlines():
-                    if line.strip():
-                        yield line
+            yield from iter_log_lines(container.logs(**kwargs))
         except (APIError, DockerException) as exc:
             raise DockerUnavailableError(str(exc)) from exc
+
+
+def iter_log_lines(chunks: Any):
+    """Buffer Docker log chunks into newline-delimited text lines."""
+
+    buffer = ""
+    for chunk in chunks:
+        if isinstance(chunk, bytes):
+            buffer += chunk.decode("utf-8", errors="replace")
+        else:
+            buffer += str(chunk)
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            line = line.rstrip("\r")
+            if line.strip():
+                yield line
+    # Flush a trailing partial line if the stream ends cleanly.
+    tail = buffer.rstrip("\r")
+    if tail.strip():
+        yield tail

@@ -68,7 +68,9 @@ services:
       MINEFORGE_BEDROCK_GID: ${BEDROCK_GID:-1000}
     volumes:
       - mineforge-data:/app-data
-      - bedrock-data:/data
+      # Host path (bind) when attaching an existing server, else named volume.
+      # Example: BEDROCK_DATA_HOST_PATH=/home/mcvm/minecraft/data
+      - ${BEDROCK_DATA_HOST_PATH:-bedrock-data}:/data
     depends_on:
       - socket-proxy
     restart: unless-stopped
@@ -98,7 +100,7 @@ services:
       # Intentionally NOT setting LEVEL_NAME / GAMEMODE / DIFFICULTY —
       # MineForge owns those keys in server.properties.
     volumes:
-      - bedrock-data:/data
+      - ${BEDROCK_DATA_HOST_PATH:-bedrock-data}:/data
     ports:
       - "19132:19132/tcp"
       - "19140-19155:19140-19155/udp"
