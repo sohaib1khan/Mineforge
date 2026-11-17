@@ -2,7 +2,7 @@
 # Multi-stage: SPA build, tests, then Python runtime serving API + static files.
 
 # ── Frontend deps ────────────────────────────────────────────────────────────
-FROM node:22-alpine AS frontend-deps
+FROM node:26-alpine AS frontend-deps
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
