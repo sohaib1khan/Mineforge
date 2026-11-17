@@ -38,7 +38,11 @@ from app.core.middleware import SecurityHeadersMiddleware
 from app.core.rate_limit import limiter
 from app.db.session import get_engine, init_db
 from app.services import operations as operations_service
-from app.services.logwatch import start_log_watcher, stop_log_watcher
+from app.services.logwatch import (
+    close_duplicate_open_sessions,
+    start_log_watcher,
+    stop_log_watcher,
+)
 from app.services.setup import ensure_setup_code
 from app.workers.scheduler import start_scheduler, stop_scheduler
 
@@ -57,6 +61,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     with Session(get_engine()) as session:
         ensure_setup_code(session, settings)
         operations_service.recover_orphaned_operations(session)
+        close_duplicate_open_sessions(session)
     start_log_watcher(settings)
     if settings.scheduler_enabled:
         start_scheduler(settings)

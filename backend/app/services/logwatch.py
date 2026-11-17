@@ -79,6 +79,65 @@ def parse_log_line(line: str) -> tuple[str, dict[str, str]] | None:
     return None
 
 
+def _open_sessions_for_player(
+    session: Session, *, gamertag: str, xuid: str | None
+) -> list[PlayerSession]:
+    """Open sessions matching xuid when present, else gamertag."""
+
+    if xuid:
+        return list(
+            session.exec(
+                select(PlayerSession).where(
+                    PlayerSession.xuid == xuid,
+                    PlayerSession.left_at.is_(None),  # type: ignore[union-attr]
+                )
+            ).all()
+        )
+    return list(
+        session.exec(
+            select(PlayerSession).where(
+                PlayerSession.gamertag == gamertag,
+                PlayerSession.left_at.is_(None),  # type: ignore[union-attr]
+            )
+        ).all()
+    )
+
+
+def close_duplicate_open_sessions(session: Session) -> int:
+    """Close extra open sessions for the same player identity.
+
+    Log replay / missed disconnects can leave multiple left_at=NULL rows for
+    one xuid, which blocks world switch consent (N approvals for 1 person).
+
+    Returns:
+        Number of duplicate sessions closed.
+    """
+
+    open_rows = list(
+        session.exec(
+            select(PlayerSession)
+            .where(PlayerSession.left_at.is_(None))  # type: ignore[union-attr]
+            .order_by(PlayerSession.joined_at)
+        ).all()
+    )
+    kept: dict[str, PlayerSession] = {}
+    closed = 0
+    now = datetime.now(UTC)
+    for row in open_rows:
+        xuid = (row.xuid or "").strip()
+        key = f"xuid:{xuid}" if xuid else f"name:{(row.gamertag or '').strip().lower()}"
+        if key in kept:
+            row.left_at = now
+            session.add(row)
+            closed += 1
+        else:
+            kept[key] = row
+    if closed:
+        session.commit()
+        logger.warning("Closed %s duplicate open player session(s)", closed)
+    return closed
+
+
 def apply_log_event(session: Session, event: str, fields: dict[str, str]) -> None:
     """Persist join/leave/started side effects.
 
@@ -99,6 +158,12 @@ def apply_log_event(session: Session, event: str, fields: dict[str, str]) -> Non
         return
 
     if event == "join":
+        open_same = _open_sessions_for_player(
+            session, gamertag=fields["gamertag"], xuid=fields.get("xuid")
+        )
+        if open_same:
+            # Already online (reconnect / log replay) — keep one open session.
+            return
         row = PlayerSession(
             gamertag=fields["gamertag"],
             xuid=fields.get("xuid"),
@@ -109,17 +174,18 @@ def apply_log_event(session: Session, event: str, fields: dict[str, str]) -> Non
         return
 
     if event == "leave":
-        statement = select(PlayerSession).where(
-            PlayerSession.gamertag == fields["gamertag"],
-            PlayerSession.left_at.is_(None),  # type: ignore[union-attr]
+        open_same = _open_sessions_for_player(
+            session, gamertag=fields["gamertag"], xuid=fields.get("xuid")
         )
-        row = session.exec(statement).first()
-        if row is not None:
-            row.left_at = datetime.now(UTC)
+        if not open_same:
+            return
+        now = datetime.now(UTC)
+        for row in open_same:
+            row.left_at = now
             if fields.get("xuid") and not row.xuid:
                 row.xuid = fields["xuid"]
             session.add(row)
-            session.commit()
+        session.commit()
 
 
 def handle_line(
