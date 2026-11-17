@@ -1,6 +1,7 @@
 ###############################################
-# MineForge MediaMTX template (no secrets).
-# Generated at container start → /tmp/mediamtx.yml
+# MineForge MediaMTX config (no secrets).
+# authHTTPAddress is set at runtime via MTX_AUTHHTTPADDRESS
+# (the official image has no /bin/sh — do not use a shell entrypoint).
 ###############################################
 
 logLevel: info
@@ -8,7 +9,8 @@ logDestinations: [stdout]
 
 # Auth: MineForge validates publish keys; reads allowed for remux/proxy.
 authMethod: http
-authHTTPAddress: __AUTH_HTTP_ADDRESS__
+# Overridden by compose env MTX_AUTHHTTPADDRESS (includes internal token).
+authHTTPAddress:
 authHTTPExclude:
   - action: api
   - action: metrics

@@ -97,17 +97,15 @@ services:
   # OBS publishes RTMP on the LAN only. HLS (:8888) and API (:9997) stay
   # on the internal Docker network — MineForge proxies HLS for viewers.
   mediamtx:
+    # Distroless image (no /bin/sh). Configure via mounted yml + MTX_* env.
     image: bluenviron/mediamtx:1.12.2
-    entrypoint: ["/bin/sh", "/entrypoint.sh"]
     env_file:
       - .env
     environment:
-      MINEFORGE_INTERNAL_STREAM_SECRET: ${MINEFORGE_INTERNAL_STREAM_SECRET:-CHANGE_ME_INTERNAL_STREAM_SECRET}
-      MEDIAMTX_TEMPLATE: /mediamtx.yml.template
-      MEDIAMTX_CONFIG_OUT: /tmp/mediamtx.yml
+      # Compose interpolates the secret into the auth callback URL (not stored in yml).
+      MTX_AUTHHTTPADDRESS: "http://mineforge:8080/internal/stream/auth?token=${MINEFORGE_INTERNAL_STREAM_SECRET:-CHANGE_ME_INTERNAL_STREAM_SECRET}"
     volumes:
-      - ./mediamtx/entrypoint.sh:/entrypoint.sh:ro
-      - ./mediamtx/mediamtx.yml.template:/mediamtx.yml.template:ro
+      - ./mediamtx/mediamtx.yml.template:/mediamtx.yml:ro
     ports:
       # Bind to LAN IP from .env — never publish 0.0.0.0 on a public host.
       - "${MEDIAMTX_RTMP_BIND_IP:-127.0.0.1}:1935:1935"
