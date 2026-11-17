@@ -356,3 +356,35 @@ export type HelpGuideResponse = {
   summary: string;
   markdown: string;
 };
+
+export type StreamStatusResponse = {
+  live: boolean;
+  enabled: boolean;
+  title: string;
+  description: string;
+  started_at: string | null;
+  viewers: number;
+  bitrate_kbps: number | null;
+  video_codec: string | null;
+  resolution: string | null;
+  last_ended_at: string | null;
+};
+
+export type StreamSettingsResponse = {
+  title: string;
+  description: string;
+  enabled: boolean;
+  key_configured: boolean;
+  key_rotated_at: string | null;
+  rtmp_server: string;
+  rtmp_stream_key_hint: string;
+  obs_notes: string[];
+};
+
+export type StreamKeyRotateResponse = {
+  stream_key: string;
+  rtmp_server: string;
+  rtmp_url_example: string;
+  key_rotated_at: string;
+  warning: string;
+};

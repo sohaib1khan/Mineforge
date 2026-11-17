@@ -44,6 +44,15 @@
 - While other players are online, either everyone approves (2 minutes) or an admin **Force switch**.
 - Admins can create, import `.mcworld`, export, rename, clone, and delete (not the active world).
 
+## Stream (OBS live)
+
+- Open **Stream** to watch when the admin is live (logged-in users only).
+- Admin panel: enable/disable, edit title/description, **Show OBS setup**, rotate the stream key (shown once — copy it).
+- OBS → Settings → Stream: Service **Custom**; Server = the RTMP URL shown in MineForge; Stream key = the generated key (or full `?user=publish&pass=…` form shown after rotate).
+- Recommended: 1280×720 or 1920×1080, 30 fps, CBR 2500–4500 kbps, keyframe interval **2 s**, AAC audio. Capture the **game window** only (gamertags and coordinates are visible on stream).
+- RTMP is LAN-only (port 1935 bound to your LAN IP). HLS is proxied through MineForge — MediaMTX is not exposed publicly.
+- Set `MEDIAMTX_RTMP_BIND_IP`, `MINEFORGE_STREAM_RTMP_HOST`, and `MINEFORGE_INTERNAL_STREAM_SECRET` in `deploy/.env` (see `.env.example`).
+
 ## Backups
 
 - Any signed-in user can tap **Backup now** for the active world.

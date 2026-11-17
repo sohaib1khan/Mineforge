@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     help_guides_dir: Path | None = None
     # When true (behind a trusted reverse proxy), use X-Forwarded-For / X-Real-IP.
     trust_proxy_headers: bool = False
+    # Stream (OBS → MediaMTX → HLS proxy). Secrets from env only.
+    stream_enabled: bool = True
+    stream_rtmp_host: str = "192.0.2.10"
+    stream_rtmp_port: int = 1935
+    stream_path: str = "live"
+    mediamtx_hls_url: str = "http://mediamtx:8888"
+    mediamtx_api_url: str = "http://mediamtx:9997"
+    internal_stream_secret: str = "CHANGE_ME_INTERNAL_STREAM_SECRET"
 
     def resolved_database_url(self) -> str:
         """Return the SQLite URL, creating the app-data directory if needed."""

@@ -3,7 +3,11 @@ import { Link } from "react-router-dom";
 
 import { APP_DISPLAY_NAME } from "../../app/constants";
 import { Skeleton } from "../../components/ui/Skeleton";
-import { fetchMetricsDashboard, fetchServerStatus } from "../../lib/api";
+import {
+  fetchMetricsDashboard,
+  fetchServerStatus,
+  fetchStreamStatus,
+} from "../../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { formatBytes, formatHours } from "../metrics/format";
 
@@ -27,11 +31,18 @@ export function HomePage() {
     queryFn: fetchMetricsDashboard,
     refetchInterval: 30_000,
   });
+  const streamQuery = useQuery({
+    queryKey: ["stream-status"],
+    queryFn: fetchStreamStatus,
+    refetchInterval: 10_000,
+    retry: false,
+  });
 
   const status = statusQuery.data;
   const running = status?.container.running;
   const metrics = metricsQuery.data;
   const latest = metrics?.latest;
+  const streamLive = Boolean(streamQuery.data?.live && streamQuery.data.enabled);
 
   return (
     <section className="space-y-6">
@@ -41,6 +52,23 @@ export function HomePage() {
           Welcome{user ? `, ${user.username}` : ""}. {APP_DISPLAY_NAME} server overview.
         </p>
       </div>
+
+      {streamLive ? (
+        <Link
+          to="/stream"
+          className="mf-card block p-4 transition-colors hover:bg-border/30"
+        >
+          <p className="inline-flex items-center gap-2 text-sm text-danger">
+            <span className="mf-status-pulse h-2.5 w-2.5 rounded-full bg-danger" />
+            Live now
+          </p>
+          <p className="mt-1 font-pixel text-xl text-primary">Watch</p>
+          <p className="mt-1 text-xs text-muted truncate">
+            {streamQuery.data?.title ?? "Stream"} · {streamQuery.data?.viewers ?? 0}{" "}
+            watching
+          </p>
+        </Link>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-3 stagger-children">
         <div className="mf-card p-4">
@@ -164,6 +192,11 @@ export function HomePage() {
             to="/metrics"
           >
             Metrics
+          </Link>
+        </li>
+        <li>
+          <Link className="text-accent underline-offset-2 hover:underline" to="/stream">
+            Stream
           </Link>
         </li>
         <li>

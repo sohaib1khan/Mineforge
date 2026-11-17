@@ -4,6 +4,10 @@
 !**/.env.example
 deploy/.env
 
+# Generated MediaMTX config (commit only the .template)
+deploy/mediamtx/mediamtx.yml
+*.key
+
 # Runtime / Minecraft data (never commit)
 *.db
 *.sqlite*

@@ -30,6 +30,9 @@ import type {
   HelpGuideListResponse,
   HelpGuideResponse,
   MetricsDashboardResponse,
+  StreamKeyRotateResponse,
+  StreamSettingsResponse,
+  StreamStatusResponse,
   MetricsOverviewResponse,
   NetworkStatusResponse,
   VersionInfoResponse,
@@ -714,4 +717,36 @@ export async function fetchHelpGuides(): Promise<HelpGuideListResponse> {
 
 export async function fetchHelpGuide(slug: string): Promise<HelpGuideResponse> {
   return request<HelpGuideResponse>(`/api/help/${encodeURIComponent(slug)}`);
+}
+
+export async function fetchStreamStatus(): Promise<StreamStatusResponse> {
+  return request<StreamStatusResponse>("/api/stream/status");
+}
+
+export async function fetchStreamSettings(): Promise<StreamSettingsResponse> {
+  return request<StreamSettingsResponse>("/api/stream/settings");
+}
+
+export async function updateStreamSettings(input: {
+  title?: string;
+  description?: string;
+  enabled?: boolean;
+}): Promise<StreamSettingsResponse> {
+  return request<StreamSettingsResponse>(
+    "/api/stream/settings",
+    { method: "PUT", body: JSON.stringify(input) },
+    { csrf: true },
+  );
+}
+
+export async function rotateStreamKey(): Promise<StreamKeyRotateResponse> {
+  return request<StreamKeyRotateResponse>(
+    "/api/stream/key/rotate",
+    { method: "POST" },
+    { csrf: true },
+  );
+}
+
+export function streamHlsPlaylistUrl(): string {
+  return "/api/stream/hls/live/index.m3u8";
 }

@@ -1,0 +1,49 @@
+###############################################
+# MineForge MediaMTX template (no secrets).
+# Generated at container start → /tmp/mediamtx.yml
+###############################################
+
+logLevel: info
+logDestinations: [stdout]
+
+# Auth: MineForge validates publish keys; reads allowed for remux/proxy.
+authMethod: http
+authHTTPAddress: __AUTH_HTTP_ADDRESS__
+authHTTPExclude:
+  - action: api
+  - action: metrics
+  - action: pprof
+
+api: yes
+apiAddress: :9997
+
+metrics: no
+pprof: no
+playback: no
+
+rtsp: no
+rtmp: yes
+rtmpAddress: :1935
+rtmpEncryption: "no"
+
+hls: yes
+hlsAddress: :8888
+hlsEncryption: no
+hlsAlwaysRemux: no
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50M
+hlsMuxerCloseAfter: 60s
+hlsAllowOrigins: ["*"]
+
+webrtc: no
+srt: no
+
+pathDefaults:
+  # Remux only — no transcoding.
+  source: publisher
+
+paths:
+  live:

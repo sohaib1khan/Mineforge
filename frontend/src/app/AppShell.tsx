@@ -1,9 +1,11 @@
+import { useQuery } from "@tanstack/react-query";
 import { NavLink, Outlet } from "react-router-dom";
 
 import { OfflineBanner } from "../components/OfflineBanner";
 import { Button } from "../components/ui/Button";
 import { useAuth } from "../features/auth/AuthContext";
 import { useTheme } from "../features/theme/ThemeContext";
+import { fetchStreamStatus } from "../lib/api";
 import { APP_DISPLAY_NAME, AUTHOR_NAME, AUTHOR_URL } from "./constants";
 
 type NavItem = {
@@ -16,10 +18,11 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { to: "/", label: "Home", end: true, mobilePrimary: true },
+  { to: "/stream", label: "Stream", mobilePrimary: true },
   { to: "/worlds", label: "Worlds", mobilePrimary: true },
   { to: "/addons", label: "Add-ons", mobilePrimary: true },
   { to: "/backups", label: "Backups" },
-  { to: "/metrics", label: "Metrics", mobilePrimary: true },
+  { to: "/metrics", label: "Metrics" },
   { to: "/help", label: "Help" },
   { to: "/server", label: "Server", adminOnly: true },
   { to: "/console", label: "Console", adminOnly: true },
@@ -43,9 +46,31 @@ export function AppShell() {
   const { user, logout, needsSetup } = useAuth();
   const { theme, toggle } = useTheme();
   const isAdmin = user?.role === "admin";
+  const streamQuery = useQuery({
+    queryKey: ["stream-status"],
+    queryFn: fetchStreamStatus,
+    enabled: Boolean(user),
+    refetchInterval: 10_000,
+    retry: false,
+  });
+  const streamLive = Boolean(streamQuery.data?.live && streamQuery.data.enabled);
 
   const visible = NAV.filter((item) => !item.adminOnly || isAdmin);
   const mobilePrimary = visible.filter((item) => item.mobilePrimary);
+
+  const navLabel = (item: NavItem) => {
+    if (item.to !== "/stream" || !streamLive) return item.label;
+    return (
+      <span className="inline-flex items-center gap-2">
+        {item.label}
+        <span
+          className="mf-status-pulse h-2 w-2 rounded-full bg-danger"
+          title="Live"
+          aria-label="Live"
+        />
+      </span>
+    );
+  };
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row">
@@ -71,7 +96,7 @@ export function AppShell() {
                 end={item.end}
                 className={desktopLinkClass}
               >
-                {item.label}
+                {navLabel(item)}
               </NavLink>
             ))}
           </nav>
@@ -136,7 +161,7 @@ export function AppShell() {
                   end={item.end}
                   className={mobileLinkClass}
                 >
-                  <span className="font-medium">{item.label}</span>
+                  <span className="font-medium">{navLabel(item)}</span>
                 </NavLink>
               ))}
             </div>

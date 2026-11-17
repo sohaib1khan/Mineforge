@@ -27,6 +27,7 @@ from app.api.routes import (
     operations,
     server,
     setup,
+    stream,
     users,
     worlds,
 )
@@ -87,6 +88,7 @@ def create_app() -> FastAPI:
     app.include_router(addons.router)
     app.include_router(metrics.router)
     app.include_router(help.router)
+    app.include_router(stream.router)
 
     static_dir = settings.static_dir
     if static_dir:

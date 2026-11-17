@@ -19,7 +19,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         csp = (
             "default-src 'self'; img-src 'self' data:; "
-            "style-src 'self' 'unsafe-inline'; script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; "
+            "media-src 'self' blob:; worker-src 'self' blob:; "
             "connect-src 'self'; frame-ancestors 'none'"
         )
         response.headers.setdefault("Content-Security-Policy", csp)

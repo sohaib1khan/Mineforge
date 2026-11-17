@@ -13,6 +13,7 @@ import { HomePage } from "../features/home/HomePage";
 import { MetricsPage } from "../features/metrics/MetricsPage";
 import { ServerPage } from "../features/server/ServerPage";
 import { SetupPage } from "../features/setup/SetupPage";
+import { StreamPage } from "../features/stream/StreamPage";
 import { ThemeProvider } from "../features/theme/ThemeContext";
 import { UsersPage } from "../features/users/UsersPage";
 import { WorldsPage } from "../features/worlds/WorldsPage";
@@ -57,6 +58,7 @@ export function App() {
                     <Route path="/help" element={<HelpPage />} />
                     <Route path="/worlds" element={<WorldsPage />} />
                     <Route path="/addons" element={<AddonsPage />} />
+                    <Route path="/stream" element={<StreamPage />} />
                     <Route element={<RequireAdmin />}>
                       <Route path="/server" element={<ServerPage />} />
                       <Route path="/console" element={<ConsolePage />} />
