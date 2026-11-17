@@ -442,11 +442,11 @@ def _live_copy_world(
 ) -> None:
     """save hold → poll save query until ready → copy truncated files → save resume."""
 
-    cursor = _console_cursor()
+    mark = _console_mark()
     try:
         console_service.send_command(settings, "save hold", actor="backup")
         _wait_for_console(
-            cursor,
+            mark,
             lambda lines: any(
                 "saving" in ln.lower() or "held" in ln.lower() or "pause" in ln.lower()
                 for ln in lines
@@ -526,13 +526,13 @@ def _poll_save_query_files(settings: Settings, world_dir: Path) -> dict[str, int
     require_db = (world_dir / "db").is_dir()
 
     while time.monotonic() < deadline:
-        cursor = _console_cursor()
+        mark = _console_mark()
         console_service.send_command(settings, "save query", actor="backup")
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
         lines = _wait_for_console(
-            cursor,
+            mark,
             lambda ls: (
                 _console_text_has_marker(ls, SAVE_READY_MARKERS)
                 or _console_text_has_marker(ls, SAVE_BUSY_MARKERS)
@@ -557,6 +557,13 @@ def _poll_save_query_files(settings: Settings, world_dir: Path) -> dict[str, int
                 # Ready marker without db/ is incomplete; keep polling.
                 time.sleep(SAVE_QUERY_POLL_INTERVAL)
                 continue
+            return file_map
+
+        # Ready marker may have been missed; accept a complete file map alone.
+        file_map = parse_save_query_files(lines)
+        if file_map and (
+            not require_db or _file_map_covers_db(file_map, world_dir.name)
+        ):
             return file_map
 
         time.sleep(SAVE_QUERY_POLL_INTERVAL)
@@ -848,12 +855,10 @@ def _sync_backup_now(
 def _live_copy_world_no_op(settings: Settings, world_dir: Path, dest_dir: Path) -> None:
     """Live copy without an Operation log (e.g. pre-delete backup)."""
 
-    cursor = _console_cursor()
+    mark = _console_mark()
     try:
         console_service.send_command(settings, "save hold", actor="backup")
-        _wait_for_console(
-            cursor, lambda _ls: True, timeout=SAVE_HOLD_TIMEOUT, soft=True
-        )
+        _wait_for_console(mark, lambda _ls: True, timeout=SAVE_HOLD_TIMEOUT, soft=True)
         time.sleep(0.5)
         file_map = _poll_save_query_files(settings, world_dir)
         _copy_truncated_files(settings.data_dir, dest_dir, file_map, world_dir)
@@ -864,15 +869,47 @@ def _live_copy_world_no_op(settings: Settings, world_dir: Path, dest_dir: Path) 
             logger.warning("save resume failed: %s", exc)
 
 
-def _console_cursor() -> int:
-    return len(console_service.snapshot_output(limit=MAX_BUFFER_PROXY))
+def _console_mark() -> datetime:
+    """Timestamp mark for waiting on console lines after this instant.
+
+    Prefer the last buffered line's ts so we do not miss lines that share the
+    same wall clock as ``datetime.now``. Index-based cursors break once the
+    ring buffer is full (``lines[len:]`` is always empty).
+    """
+
+    lines = console_service.snapshot_output(limit=1)
+    if not lines:
+        return datetime.now(UTC)
+    try:
+        ts = datetime.fromisoformat(lines[-1]["ts"])
+    except ValueError:
+        return datetime.now(UTC)
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    return ts
 
 
 MAX_BUFFER_PROXY = 1000
 
 
+def _lines_after_mark(mark: datetime) -> list[str]:
+    """Return console text lines with timestamp strictly after ``mark``."""
+
+    collected: list[str] = []
+    for ln in console_service.snapshot_output(limit=MAX_BUFFER_PROXY):
+        try:
+            ts = datetime.fromisoformat(ln["ts"])
+        except ValueError:
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        if ts > mark:
+            collected.append(ln["text"])
+    return collected
+
+
 def _wait_for_console(
-    cursor: int,
+    mark: datetime,
     predicate: Callable[[list[str]], bool],
     *,
     timeout: float,
@@ -883,8 +920,7 @@ def _wait_for_console(
     deadline = time.monotonic() + timeout
     collected: list[str] = []
     while time.monotonic() < deadline:
-        lines = console_service.snapshot_output(limit=MAX_BUFFER_PROXY)
-        new_lines = [ln["text"] for ln in lines[cursor:]]
+        new_lines = _lines_after_mark(mark)
         if new_lines:
             collected = new_lines
             if predicate(collected):
@@ -900,16 +936,13 @@ def _wait_for_server_healthy(settings: Settings, *, timeout: float) -> None:
 
     docker = get_docker_client(settings)
     deadline = time.monotonic() + timeout
-    cursor = _console_cursor()
+    mark = _console_mark()
     while time.monotonic() < deadline:
         status = docker.status()
         if not status.running:
             time.sleep(1)
             continue
-        lines = [
-            ln["text"]
-            for ln in console_service.snapshot_output(limit=MAX_BUFFER_PROXY)[cursor:]
-        ]
+        lines = _lines_after_mark(mark)
         if any(any(m in ln.lower() for m in SERVER_STARTED_MARKERS) for ln in lines):
             return
         # If running for a bit without marker (fake docker), accept running

@@ -47,3 +47,17 @@ def test_parse_save_query_world_relative_paths() -> None:
     assert result["TestWorld/db/000966.ldb"] == 37747
     assert result["TestWorld/level.dat"] == 99
     assert _file_map_covers_db(result, "TestWorld")
+
+
+def test_parse_save_query_paths_with_spaces() -> None:
+    lines = [
+        "Data saved. Files are now ready to be copied.",
+        (
+            "Helixx World/db/MANIFEST-001386:10694, Helixx World/db/CURRENT:16, "
+            "Helixx World/level.dat:3054"
+        ),
+    ]
+    result = parse_save_query_files(lines)
+    assert result["Helixx World/db/MANIFEST-001386"] == 10694
+    assert result["Helixx World/level.dat"] == 3054
+    assert _file_map_covers_db(result, "Helixx World")

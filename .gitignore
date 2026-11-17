@@ -4,6 +4,9 @@
 !**/.env.example
 deploy/.env
 
+# Internal planning docs (not for the public repo)
+blueprint*.md
+
 # Generated MediaMTX config (commit only the .template)
 deploy/mediamtx/mediamtx.yml
 *.key

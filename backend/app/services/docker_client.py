@@ -76,7 +76,9 @@ class BedrockDocker(Protocol):
 
     def send_command(self, command: str) -> None: ...
 
-    def follow_logs(self, since: datetime | None = None) -> Any: ...
+    def follow_logs(
+        self, since: datetime | None = None, *, tail: int | None = None
+    ) -> Any: ...
 
 
 def parse_docker_stats(raw: dict[str, Any]) -> ContainerStatsSample:
@@ -414,12 +416,15 @@ class DockerSdkClient:
         except (APIError, OSError, DockerException) as exc:
             raise AppError(f"Failed to send command: {exc}", status_code=502) from exc
 
-    def follow_logs(self, since: datetime | None = None):
+    def follow_logs(self, since: datetime | None = None, *, tail: int | None = None):
         """Yield complete log lines from the Bedrock container.
 
         Docker often delivers one byte (or partial UTF-8) per chunk when
         ``stream=True``. Buffer until newlines so the console UI does not
         render a separate row per character.
+
+        Prefer ``tail`` / ``since`` so reconnects do not replay hours of
+        history into the console ring buffer (which breaks save-query waits).
         """
 
         container = self._get_container()
@@ -434,6 +439,8 @@ class DockerSdkClient:
             if since.tzinfo is None:
                 since = since.replace(tzinfo=UTC)
             kwargs["since"] = int(since.timestamp())
+        elif tail is not None:
+            kwargs["tail"] = max(0, int(tail))
         try:
             yield from iter_log_lines(container.logs(**kwargs))
         except (APIError, DockerException) as exc:

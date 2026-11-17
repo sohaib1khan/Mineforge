@@ -207,6 +207,7 @@ def handle_line(
 
 def _watch_loop(settings: Settings) -> None:
     logger.info("Log watcher starting for container %s", settings.bedrock_container)
+    first_connect = True
     while not _stop_event.is_set():
         try:
             client = get_docker_client(settings)
@@ -214,7 +215,14 @@ def _watch_loop(settings: Settings) -> None:
             if not status.running:
                 _stop_event.wait(5)
                 continue
-            for line in client.follow_logs():
+            # First attach: short tail. Reconnects: only new lines (avoid
+            # replaying the whole container history into the ring buffer).
+            if first_connect:
+                stream = client.follow_logs(tail=200)
+                first_connect = False
+            else:
+                stream = client.follow_logs(since=datetime.now(UTC))
+            for line in stream:
                 if _stop_event.is_set():
                     break
                 try:
