@@ -61,6 +61,12 @@ cmd_up() {
   if [[ "${1:-}" == "bedrock" ]]; then
     "${COMPOSE[@]}" --profile bedrock up -d --build bedrock
   fi
+  # Surface a common attach failure early (proxy crash-loop → DNS errors in UI).
+  sleep 2
+  if ! docker ps --filter "name=mineforge-socket-proxy" --filter "status=running" --format '{{.Names}}' | grep -q .; then
+    echo "warning: socket-proxy is not running — Server/Docker controls will fail." >&2
+    echo "         Check: docker logs mineforge-socket-proxy-1" >&2
+  fi
   echo "==> Waiting for health"
   local i
   for i in $(seq 1 40); do

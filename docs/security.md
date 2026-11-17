@@ -27,7 +27,7 @@ For local HTTP development set `MINEFORGE_COOKIE_SECURE=false`.
 ## Trust boundaries
 
 - The app container never mounts `/var/run/docker.sock` directly
-- Docker control goes through tecnativa/docker-socket-proxy with a minimal ACL (containers/info/logs/stats + start/stop/restart)
+- Docker control goes through tecnativa/docker-socket-proxy with a minimal ACL (containers/info/logs/stats + start/stop/restart). The proxy stays on the internal Compose network only.
 - Uploads: size limit, extension allowlist, zip-bomb safe extraction (`archive_safety`)
 
 ## Repository hygiene

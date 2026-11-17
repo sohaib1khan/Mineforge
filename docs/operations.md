@@ -69,7 +69,8 @@ UI: http://localhost:18080 (`MINEFORGE_HOST_PORT`).
 
 ## Phase 9 notes
 
-- App + socket-proxy: `read_only`, `cap_drop: ALL`, `no-new-privileges`, tmpfs `/tmp`; proxy enables `LOGS` + `STATS`.
+- App + socket-proxy: `read_only`, `cap_drop: ALL`, `no-new-privileges`; proxy tmpfs `/tmp` + `/run`, `DISABLE_IPV6=1`, `ALLOW_RESTARTS`; proxy enables `LOGS` + `STATS`.
+- If Server page cannot reach Docker (`Failed to resolve 'socket-proxy'`), check `docker ps` — proxy must be **Up (healthy)**, not Restarting. Recreate with `./deploy/mf up`.
 - Backend tests enforce `--cov-fail-under=80` on `app/services`.
 - Operator docs: [restore-drill.md](./restore-drill.md), [migrating-from-itzg.md](./migrating-from-itzg.md), [release-checklist.md](./release-checklist.md).
 - Optional GHCR multi-arch: `./deploy/publish.sh <version>` or tag `v*` for `.github/workflows/publish.yml`.

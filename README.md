@@ -48,7 +48,9 @@ Useful extras:
 
 ## Already running Bedrock?
 
-Keep your existing itzg (or compatible) container. Deploy MineForge **without** the `bedrock` profile, point `MINEFORGE_BEDROCK_CONTAINER` at that container’s name, and bind-mount your current `/data` directory into the MineForge service.
+Keep your existing container. Deploy with `./deploy/mf up` (**not** `up bedrock`), set `MINEFORGE_BEDROCK_CONTAINER` to the name from `docker ps`, and bind-mount that server’s data directory to `/data` on the MineForge service.
+
+If the Server page shows `Failed to resolve 'socket-proxy'`, the proxy container is down — run `docker ps` and look for `mineforge-socket-proxy` Restarting, then `./deploy/mf up` again after pulling the latest fix.
 
 Details: [docs/migrating-from-itzg.md](./docs/migrating-from-itzg.md).
 

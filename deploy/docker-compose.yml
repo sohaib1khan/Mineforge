@@ -29,17 +29,23 @@ services:
       SYSTEM: 0
       TASKS: 0
       VOLUMES: 0
-      ALLOW_RESTART: 1
+      # Official flag is ALLOW_RESTARTS (plural).
+      ALLOW_RESTARTS: 1
       ALLOW_START: 1
       ALLOW_STOP: 1
+      # Avoid HAProxy bind failures on hosts without working IPv6.
+      DISABLE_IPV6: "1"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # ACL is the trust boundary; sock must be writable for Docker API calls.
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - mineforge
     restart: unless-stopped
     read_only: true
+    # HAProxy needs writable /tmp + /run under a read-only rootfs.
     tmpfs:
       - /tmp
+      - /run
     cap_drop:
       - ALL
     security_opt:
