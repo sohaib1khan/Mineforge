@@ -44,6 +44,8 @@ def test_stream_status_and_key_rotate(
     payload = rotated.json()
     key = payload["stream_key"]
     assert len(key) >= 32
+    assert payload["obs_stream_key"].startswith("?user=publish&pass=")
+    assert key in payload["obs_stream_key"]
     assert "rtmp://" in payload["rtmp_server"]
     assert "pass=" in payload["rtmp_url_example"]
 

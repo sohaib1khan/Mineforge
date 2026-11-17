@@ -377,12 +377,15 @@ export type StreamSettingsResponse = {
   key_configured: boolean;
   key_rotated_at: string | null;
   rtmp_server: string;
+  rtmp_host: string;
+  rtmp_port: number;
   rtmp_stream_key_hint: string;
   obs_notes: string[];
 };
 
 export type StreamKeyRotateResponse = {
   stream_key: string;
+  obs_stream_key: string;
   rtmp_server: string;
   rtmp_url_example: string;
   key_rotated_at: string;

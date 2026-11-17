@@ -20,6 +20,7 @@ def _settings(tmp_path: Path) -> Settings:
         data_dir=tmp_path / "data",
         app_data_dir=tmp_path / "app-data",
         secret_key="test-secret-key-not-real",
+        public_url="http://localhost:8080",
         internal_stream_secret="test-internal-stream-secret",
         stream_rtmp_host="192.0.2.10",
         mediamtx_hls_url="http://mediamtx:8888",
@@ -140,7 +141,26 @@ def test_verify_internal_caller(tmp_path: Path) -> None:
 def test_rtmp_urls(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     assert stream_service.rtmp_server_url(settings) == "rtmp://192.0.2.10:1935/live"
+    assert stream_service.obs_stream_key_field("abc") == "?user=publish&pass=abc"
     example = stream_service.rtmp_url_with_key(settings, "abc")
     assert example.startswith("rtmp://192.0.2.10:1935/live?")
     assert "user=publish" in example
     assert "pass=abc" in example
+
+
+def test_rtmp_host_falls_back_to_public_url(tmp_path: Path) -> None:
+    clear_settings_cache()
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        app_data_dir=tmp_path / "app-data",
+        secret_key="test-secret-key-not-real",
+        public_url="https://mineforge.example.com",
+        stream_rtmp_host="192.0.2.10",
+        internal_stream_secret="test-internal-stream-secret",
+        _env_file=None,
+    )
+    assert settings.resolved_stream_rtmp_host() == "mineforge.example.com"
+    assert (
+        stream_service.rtmp_server_url(settings)
+        == "rtmp://mineforge.example.com:1935/live"
+    )

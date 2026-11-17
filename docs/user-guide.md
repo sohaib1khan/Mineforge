@@ -47,11 +47,14 @@
 ## Stream (OBS live)
 
 - Open **Stream** to watch when the admin is live (logged-in users only).
-- Admin panel: enable/disable, edit title/description, **Show OBS setup**, rotate the stream key (shown once — copy it).
-- OBS → Settings → Stream: Service **Custom**; Server = the RTMP URL shown in MineForge; Stream key = the generated key (or full `?user=publish&pass=…` form shown after rotate).
-- Recommended: 1280×720 or 1920×1080, 30 fps, CBR 2500–4500 kbps, keyframe interval **2 s**, AAC audio. Capture the **game window** only (gamertags and coordinates are visible on stream).
-- RTMP is LAN-only (port 1935 bound to your LAN IP). HLS is proxied through MineForge — MediaMTX is not exposed publicly.
-- Set `MEDIAMTX_RTMP_BIND_IP`, `MINEFORGE_STREAM_RTMP_HOST`, and `MINEFORGE_INTERNAL_STREAM_SECRET` in `deploy/.env` (see `.env.example`).
+- Admin panel: enable/disable, edit title/description, **Show OBS setup**, **Regenerate key** (OBS values shown once — use Copy).
+- OBS → Settings → Stream:
+  - Service: **Custom** (not Twitch / YouTube)
+  - Server: `rtmp://<your-public-host>:1935/live` (from MineForge — must be `rtmp://`, not `https://`)
+  - Stream Key: the `?user=publish&pass=…` value MineForge shows after regenerate
+- For remote OBS (different network): forward **TCP 1935** to the MineForge host; set `MINEFORGE_STREAM_RTMP_HOST` (or rely on `MINEFORGE_PUBLIC_URL` host) and `MINEFORGE_INTERNAL_STREAM_SECRET` in `deploy/.env`.
+- Recommended: 1280×720 or 1920×1080, 30 fps, CBR 2500–4500 kbps, keyframe interval **2 s**, AAC audio. Capture the **game window** only.
+- Viewers use MineForge HLS proxy; MediaMTX HLS/API ports stay internal. RTMP publish is authenticated with the stream key (RTMP itself is not encrypted).
 
 ## Backups
 

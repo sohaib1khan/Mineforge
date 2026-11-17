@@ -10,8 +10,21 @@ import {
   rotateStreamKey,
   updateStreamSettings,
 } from "../../lib/api";
+import { copyText } from "../../lib/clipboard";
 import { useAuth } from "../auth/AuthContext";
 import { StreamPlayer } from "./StreamPlayer";
+
+async function copyOrToast(
+  value: string,
+  okMessage: string,
+  push: (message: string, tone: "success" | "error" | "info") => void,
+): Promise<void> {
+  const ok = await copyText(value);
+  push(
+    ok ? okMessage : "Copy failed — select the text and copy manually.",
+    ok ? "success" : "error",
+  );
+}
 
 function formatDuration(startedAt: string | null): string {
   if (!startedAt) return "—";
@@ -46,6 +59,7 @@ export function StreamPage() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [obsOpen, setObsOpen] = useState(false);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [revealedObsKey, setRevealedObsKey] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
   const [descriptionDraft, setDescriptionDraft] = useState<string | null>(null);
 
@@ -77,8 +91,10 @@ export function StreamPage() {
     mutationFn: rotateStreamKey,
     onSuccess: (data) => {
       setRevealedKey(data.stream_key);
+      setRevealedObsKey(data.obs_stream_key);
       setObsOpen(true);
-      toast.push("Stream key rotated. Copy it now.", "info");
+      setAdminOpen(true);
+      toast.push(data.warning, "info");
       void queryClient.invalidateQueries({ queryKey: ["stream-settings"] });
     },
     onError: (err: Error) => toast.push(err.message, "error"),
@@ -198,40 +214,68 @@ export function StreamPage() {
                   </div>
                   {obsOpen && settings ? (
                     <div className="space-y-3 rounded-md border border-border bg-bg/60 p-3 text-sm">
-                      <p>
-                        <span className="text-muted">Server: </span>
-                        <code className="break-all">{settings.rtmp_server}</code>
-                        <Button
-                          variant="ghost"
-                          className="ml-2"
-                          onClick={() => {
-                            void navigator.clipboard.writeText(settings.rtmp_server);
-                            toast.push("Copied server URL.", "success");
-                          }}
-                        >
-                          Copy
-                        </Button>
+                      <p className="font-medium text-text">
+                        OBS → Settings → Stream → Service:{" "}
+                        <span className="text-primary">Custom</span> (not Twitch)
                       </p>
-                      <p>
-                        <span className="text-muted">Stream key: </span>
-                        {revealedKey ? (
-                          <>
-                            <code className="break-all">{revealedKey}</code>
+                      <div className="space-y-1">
+                        <p className="text-muted">Server (paste into OBS Server)</p>
+                        <div className="flex flex-wrap items-start gap-2">
+                          <code className="min-w-0 flex-1 break-all rounded bg-border/40 px-2 py-1">
+                            {settings.rtmp_server}
+                          </code>
+                          <Button
+                            variant="secondary"
+                            onClick={() => {
+                              void copyOrToast(
+                                settings.rtmp_server,
+                                "Copied OBS server URL.",
+                                toast.push,
+                              );
+                            }}
+                          >
+                            Copy
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted">
+                          Must start with rtmp:// — not https://
+                          {settings.rtmp_host
+                            ? ` (host: ${settings.rtmp_host}:${settings.rtmp_port})`
+                            : ""}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-muted">
+                          Stream Key (paste into OBS Stream Key — includes
+                          ?user=…&amp;pass=…)
+                        </p>
+                        {revealedObsKey ? (
+                          <div className="flex flex-wrap items-start gap-2">
+                            <code className="min-w-0 flex-1 break-all rounded bg-border/40 px-2 py-1">
+                              {revealedObsKey}
+                            </code>
                             <Button
-                              variant="ghost"
-                              className="ml-2"
+                              variant="secondary"
                               onClick={() => {
-                                void navigator.clipboard.writeText(revealedKey);
-                                toast.push("Copied stream key.", "success");
+                                void copyOrToast(
+                                  revealedObsKey,
+                                  "Copied OBS stream key field.",
+                                  toast.push,
+                                );
                               }}
                             >
                               Copy
                             </Button>
-                          </>
+                          </div>
                         ) : (
-                          <span>{settings.rtmp_stream_key_hint}</span>
+                          <p className="text-sm">{settings.rtmp_stream_key_hint}</p>
                         )}
-                      </p>
+                        {revealedKey ? (
+                          <p className="text-xs text-muted break-all">
+                            Raw key (advanced): {revealedKey}
+                          </p>
+                        ) : null}
+                      </div>
                       <Button
                         variant="danger"
                         disabled={rotateMutation.isPending}
@@ -254,7 +298,8 @@ export function StreamPage() {
                       </ul>
                       <p className="text-xs text-muted">
                         Reminder: the stream shows gamertags, chat, and coordinates —
-                        capture the game window only.
+                        capture the game window only. Forward TCP {settings.rtmp_port}{" "}
+                        if streaming from outside your home network.
                       </p>
                     </div>
                   ) : null}

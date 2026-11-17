@@ -95,6 +95,7 @@ def rotate_stream_key(
     assert row.key_rotated_at is not None
     return StreamKeyRotateResponse(
         stream_key=plaintext,
+        obs_stream_key=stream_service.obs_stream_key_field(plaintext),
         rtmp_server=stream_service.rtmp_server_url(settings),
         rtmp_url_example=stream_service.rtmp_url_with_key(settings, plaintext),
         key_rotated_at=row.key_rotated_at.isoformat(),

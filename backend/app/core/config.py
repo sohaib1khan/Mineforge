@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlparse
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -48,12 +49,29 @@ class Settings(BaseSettings):
     trust_proxy_headers: bool = False
     # Stream (OBS → MediaMTX → HLS proxy). Secrets from env only.
     stream_enabled: bool = True
-    stream_rtmp_host: str = "192.0.2.10"
+    # Public hostname/IP OBS uses for RTMP (e.g. mineforge.example.com).
+    # Empty / documentation placeholders fall back to public_url host.
+    stream_rtmp_host: str = ""
     stream_rtmp_port: int = 1935
     stream_path: str = "live"
     mediamtx_hls_url: str = "http://mediamtx:8888"
     mediamtx_api_url: str = "http://mediamtx:9997"
     internal_stream_secret: str = "CHANGE_ME_INTERNAL_STREAM_SECRET"
+
+    def resolved_stream_rtmp_host(self) -> str:
+        """Hostname OBS should use for RTMP publish (public host preferred)."""
+
+        host = (self.stream_rtmp_host or "").strip()
+        placeholders = {"", "192.0.2.10", "CHANGE_ME", "example.com", "localhost"}
+        if host and host.lower() not in placeholders:
+            return host
+        parsed = urlparse(self.public_url)
+        if parsed.hostname and parsed.hostname.lower() not in {
+            "localhost",
+            "127.0.0.1",
+        }:
+            return parsed.hostname
+        return host or "192.0.2.10"
 
     def resolved_database_url(self) -> str:
         """Return the SQLite URL, creating the app-data directory if needed."""

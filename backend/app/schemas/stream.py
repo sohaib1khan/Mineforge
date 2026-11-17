@@ -25,6 +25,8 @@ class StreamSettingsResponse(BaseModel):
     key_configured: bool
     key_rotated_at: str | None = None
     rtmp_server: str
+    rtmp_host: str = ""
+    rtmp_port: int = 1935
     rtmp_stream_key_hint: str
     obs_notes: list[str] = Field(default_factory=list)
 
@@ -37,12 +39,13 @@ class StreamSettingsUpdateRequest(BaseModel):
 
 class StreamKeyRotateResponse(BaseModel):
     stream_key: str
+    obs_stream_key: str
     rtmp_server: str
     rtmp_url_example: str
     key_rotated_at: str
     warning: str = (
-        "Copy this key now — it will not be shown again. "
-        "Capture the game window only (gamertags and coordinates are visible)."
+        "Copy the OBS Stream Key field now — it will not be shown again. "
+        "In OBS use Service: Custom (not Twitch). Capture the game window only."
     )
 
 

@@ -36,10 +36,12 @@ STREAM_PATH = "live"
 STATUS_CACHE_SECONDS = 3.0
 HLS_ALLOWED_SUFFIXES = (".m3u8", ".ts", ".mp4", ".m4s", ".cmfv", ".cmfa")
 OBS_NOTES = [
-    "Service: Custom. Server = RTMP URL below. Stream key = the value shown once after rotate.",
+    "OBS → Settings → Stream: Service must be Custom (not Twitch/YouTube).",
+    "Server = the RTMP server URL below (rtmp://…:1935/live) — not your https:// website.",
+    "Stream Key = the OBS stream-key field below (?user=publish&pass=…). Paste that whole string.",
+    "Forward TCP 1935 to this host if OBS is off your LAN. RTMP is not encrypted — use a strong key.",
     "Output: 1280×720 or 1920×1080, 30 fps, CBR 2500–4500 kbps, keyframe interval 2 s.",
-    "Encoder: NVENC / VAAPI / QSV if available, else x264 veryfast.",
-    "Audio: AAC 128–160 kbps, 48 kHz.",
+    "Encoder: NVENC / VAAPI / QSV if available, else x264 veryfast. Audio: AAC 128–160 kbps, 48 kHz.",
     "Capture the game window only — avoid leaking other windows, chat, or credentials.",
 ]
 
@@ -74,15 +76,20 @@ def get_or_create_settings(session: Session, settings: Settings) -> StreamSettin
 def rtmp_server_url(settings: Settings) -> str:
     """OBS Custom server URL (no credentials)."""
 
-    host = settings.stream_rtmp_host.strip() or "192.0.2.10"
+    host = settings.resolved_stream_rtmp_host()
     return f"rtmp://{host}:{settings.stream_rtmp_port}/{STREAM_PATH}"
+
+
+def obs_stream_key_field(stream_key: str) -> str:
+    """Value for OBS Custom 'Stream Key' (MediaMTX query auth)."""
+
+    return f"?user=publish&pass={stream_key}"
 
 
 def rtmp_url_with_key(settings: Settings, stream_key: str) -> str:
     """Full RTMP publish URL with query credentials for MediaMTX."""
 
-    base = rtmp_server_url(settings)
-    return f"{base}?user=publish&pass={stream_key}"
+    return f"{rtmp_server_url(settings)}{obs_stream_key_field(stream_key)}"
 
 
 def settings_to_dict(
@@ -97,10 +104,12 @@ def settings_to_dict(
             row.key_rotated_at.isoformat() if row.key_rotated_at else None
         ),
         "rtmp_server": rtmp_server_url(settings),
+        "rtmp_host": settings.resolved_stream_rtmp_host(),
+        "rtmp_port": settings.stream_rtmp_port,
         "rtmp_stream_key_hint": (
-            "Rotate the key to reveal a new one (shown once)."
+            "Regenerate the key to reveal copyable OBS values (shown once)."
             if row.key_hash
-            else "No key yet — rotate to create one."
+            else "No key yet — regenerate to create one."
         ),
     }
     if include_obs:

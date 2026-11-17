@@ -78,7 +78,7 @@ docker compose
 
 ## Phase 10 (Stream)
 
-- MediaMTX container: OBS publishes RTMP on LAN `:1935`; HLS/API stay on the Docker network
+- MediaMTX container: OBS publishes RTMP on `:1935` (public bind by default for remote OBS); HLS/API stay on the Docker network
 - Publish auth via `POST /internal/stream/auth` (shared secret + private source IP); stream key argon2-hashed
 - Viewers: logged-in session → `/api/stream/hls/*` httpx proxy → MediaMTX LL-HLS (`hls.js` / native Safari)
-- Stream page + nav LIVE badge + dashboard “Live now — Watch” card
+- Stream page + nav LIVE badge + dashboard “Live now — Watch” card; OBS Custom uses `?user=publish&pass=…` stream-key field
