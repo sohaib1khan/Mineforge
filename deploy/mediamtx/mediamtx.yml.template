@@ -38,7 +38,8 @@ hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 hlsSegmentMaxSize: 50M
 hlsMuxerCloseAfter: 60s
-hlsAllowOrigins: ["*"]
+# MediaMTX v1.12 uses singular hlsAllowOrigin (not hlsAllowOrigins).
+hlsAllowOrigin: "*"
 
 webrtc: no
 srt: no
