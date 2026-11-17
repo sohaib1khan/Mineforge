@@ -37,8 +37,8 @@ STATUS_CACHE_SECONDS = 3.0
 HLS_ALLOWED_SUFFIXES = (".m3u8", ".ts", ".mp4", ".m4s", ".cmfv", ".cmfa")
 OBS_NOTES = [
     "OBS → Settings → Stream: Service must be Custom (not Twitch/YouTube).",
-    "Server = rtmp://HOST:1935/live (not https://). Stream Key = ?user=publish&pass=… (whole string).",
-    "If OBS reconnect-loops with path live/: keep Server ending in /live and Stream Key starting with ?.",
+    "Server = rtmp://HOST:1935/  (trailing slash, not https://).",
+    "Stream Key = live?user=publish&pass=… (must start with live? — Copy from MineForge).",
     "Cloudflare: do NOT use an orange-cloud hostname for RTMP. Use a DNS-only record or LAN IP.",
     "Forward TCP 1935 on the router/firewall for remote OBS. RTMP is not encrypted — use a strong key.",
     "Output: 1280×720 or 1920×1080, 30 fps, CBR 2500–4500 kbps, keyframe interval 2 s.",
@@ -75,22 +75,30 @@ def get_or_create_settings(session: Session, settings: Settings) -> StreamSettin
 
 
 def rtmp_server_url(settings: Settings) -> str:
-    """OBS Custom server URL (no credentials)."""
+    """OBS Custom server URL (application root, no credentials).
+
+    OBS appends Stream Key after this. Use Stream Key ``live?user=…&pass=…``
+    so the MediaMTX path is ``live`` (not ``live/``).
+    """
 
     host = settings.resolved_stream_rtmp_host()
-    return f"rtmp://{host}:{settings.stream_rtmp_port}/{STREAM_PATH}"
+    return f"rtmp://{host}:{settings.stream_rtmp_port}/"
 
 
 def obs_stream_key_field(stream_key: str) -> str:
-    """Value for OBS Custom 'Stream Key' (MediaMTX query auth)."""
+    """Value for OBS Custom 'Stream Key' (path + MediaMTX query auth)."""
 
-    return f"?user=publish&pass={stream_key}"
+    return f"{STREAM_PATH}?user=publish&pass={stream_key}"
 
 
 def rtmp_url_with_key(settings: Settings, stream_key: str) -> str:
     """Full RTMP publish URL with query credentials for MediaMTX."""
 
-    return f"{rtmp_server_url(settings)}{obs_stream_key_field(stream_key)}"
+    host = settings.resolved_stream_rtmp_host()
+    return (
+        f"rtmp://{host}:{settings.stream_rtmp_port}/"
+        f"{obs_stream_key_field(stream_key)}"
+    )
 
 
 def settings_to_dict(

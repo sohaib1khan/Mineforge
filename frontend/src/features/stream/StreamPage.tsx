@@ -219,7 +219,7 @@ export function StreamPage() {
                         <span className="text-primary">Custom</span> (not Twitch)
                       </p>
                       <div className="space-y-1">
-                        <p className="text-muted">Server (paste into OBS Server)</p>
+                        <p className="text-muted">Server (OBS → Server)</p>
                         <div className="flex flex-wrap items-start gap-2">
                           <code className="min-w-0 flex-1 break-all rounded bg-border/40 px-2 py-1">
                             {settings.rtmp_server}
@@ -238,21 +238,21 @@ export function StreamPage() {
                           </Button>
                         </div>
                         <p className="text-xs text-muted">
-                          Must start with rtmp:// — not https://
+                          Must be rtmp://HOST:1935/ (trailing slash) — not https:// and
+                          not …/live
                           {settings.rtmp_host
                             ? ` (host: ${settings.rtmp_host}:${settings.rtmp_port})`
                             : ""}
                         </p>
                         <p className="text-xs text-danger">
                           If this hostname is behind Cloudflare (orange cloud), OBS will
-                          fail to connect. Use a DNS-only hostname or the server&apos;s
-                          public IP for RTMP, and open TCP {settings.rtmp_port}.
+                          fail to connect. Use a DNS-only hostname or LAN/public IP, and
+                          open TCP {settings.rtmp_port}.
                         </p>
                       </div>
                       <div className="space-y-1">
                         <p className="text-muted">
-                          Stream Key (paste into OBS Stream Key — includes
-                          ?user=…&amp;pass=…)
+                          Stream Key (OBS → Stream Key — must start with live?user=…)
                         </p>
                         {revealedObsKey ? (
                           <div className="flex flex-wrap items-start gap-2">
