@@ -152,7 +152,10 @@ export function StreamPage() {
       {statusQuery.isLoading ? (
         <SkeletonLines count={6} />
       ) : (
-        <StreamPlayer live={Boolean(status?.live && status.enabled)} />
+        <StreamPlayer
+          live={Boolean(status?.live && status.enabled)}
+          hlsPath={status?.hls_path}
+        />
       )}
 
       {isAdmin ? (

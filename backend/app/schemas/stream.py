@@ -16,6 +16,7 @@ class StreamStatusResponse(BaseModel):
     video_codec: str | None = None
     resolution: str | None = None
     last_ended_at: str | None = None
+    hls_path: str | None = None
 
 
 class StreamSettingsResponse(BaseModel):

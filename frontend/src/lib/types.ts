@@ -368,6 +368,7 @@ export type StreamStatusResponse = {
   video_codec: string | null;
   resolution: string | null;
   last_ended_at: string | null;
+  hls_path: string | null;
 };
 
 export type StreamSettingsResponse = {

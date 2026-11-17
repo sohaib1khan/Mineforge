@@ -32,18 +32,17 @@ from app.services.audit import record_audit
 
 logger = logging.getLogger(__name__)
 
-# OBS Custom uses RTMP app + stream name → MediaMTX path "live/stream".
+# OBS Custom: Server …/live + Stream Key <name>?user=…&pass=… → path live/<name>.
 STREAM_APP = "live"
 STREAM_NAME = "stream"
 STREAM_PATH = f"{STREAM_APP}/{STREAM_NAME}"
-HLS_PLAYLIST = f"{STREAM_PATH}/index.m3u8"
 STATUS_CACHE_SECONDS = 3.0
 HLS_ALLOWED_SUFFIXES = (".m3u8", ".ts", ".mp4", ".m4s", ".cmfv", ".cmfa")
 OBS_NOTES = [
     "OBS → Settings → Stream: Service must be Custom (not Twitch/YouTube).",
     "Server = rtmp://HOST:1935/live  (ends with /live — not https://).",
-    "Stream Key = stream?user=publish&pass=… (must start with stream? — Copy from MineForge).",
-    "Do not put live in both Server and Stream Key (that becomes path live/live).",
+    "Stream Key = Copy from MineForge (…?user=publish&pass=…). Name before ? can be stream or live.",
+    "Click Show next to Stream Key in OBS and confirm it contains user=publish&pass=.",
     "Cloudflare: do NOT use an orange-cloud hostname for RTMP. Use a DNS-only record or LAN IP.",
     "Forward TCP 1935 on the router/firewall for remote OBS. RTMP is not encrypted — use a strong key.",
     "Output: 1280×720 or 1920×1080, 30 fps, CBR 2500–4500 kbps, keyframe interval 2 s.",
@@ -107,9 +106,13 @@ def _normalize_path(path: str) -> str:
 
 
 def _is_publish_path(path: str) -> bool:
-    """True when OBS is publishing the configured app/stream path."""
+    """True when OBS publishes under live/<streamName> (not live alone)."""
 
-    return _normalize_path(path) == STREAM_PATH
+    cleaned = _normalize_path(path)
+    if not cleaned.startswith(f"{STREAM_APP}/"):
+        return False
+    rest = cleaned[len(STREAM_APP) + 1 :]
+    return bool(rest) and "/" not in rest
 
 
 def _is_read_path(path: str) -> bool:
@@ -419,16 +422,11 @@ def _invalidate_status_cache() -> None:
 
 
 def _fetch_mediamtx_path(settings: Settings) -> dict[str, Any] | None:
-    """Return the ready live/stream path info, if any."""
+    """Return a ready path under live/*, if any."""
 
     base = settings.mediamtx_api_url.rstrip("/") + "/"
     try:
         with httpx.Client(timeout=2.5) as client:
-            # Prefer exact path used by OBS (app/stream).
-            direct = client.get(urljoin(base, f"v3/paths/get/{STREAM_PATH}"))
-            if direct.status_code == 200:
-                data = direct.json()
-                return data if isinstance(data, dict) else None
             listed = client.get(urljoin(base, "v3/paths/list"))
             if listed.status_code != 200:
                 return None
@@ -436,16 +434,34 @@ def _fetch_mediamtx_path(settings: Settings) -> dict[str, Any] | None:
             items = payload.get("items") if isinstance(payload, dict) else None
             if not isinstance(items, list):
                 return None
+            ready: dict[str, Any] | None = None
+            fallback: dict[str, Any] | None = None
             for item in items:
                 if not isinstance(item, dict):
                     continue
                 name = str(item.get("name") or "").strip().strip("/")
-                if name == STREAM_PATH or name.startswith(f"{STREAM_PATH}/"):
-                    return item
-            return None
+                if not _is_publish_path(name):
+                    continue
+                if item.get("ready"):
+                    ready = item
+                    break
+                if fallback is None:
+                    fallback = item
+            return ready or fallback
     except (httpx.HTTPError, ValueError) as exc:
         logger.debug("MediaMTX path status unavailable: %s", exc)
         return None
+
+
+def resolve_hls_playlist_path(settings: Settings) -> str:
+    """Return the HLS playlist path for the current (or default) publish path."""
+
+    info = _fetch_mediamtx_path(settings)
+    if info and info.get("ready"):
+        name = str(info.get("name") or "").strip().strip("/")
+        if _is_publish_path(name):
+            return f"{name}/index.m3u8"
+    return f"{STREAM_PATH}/index.m3u8"
 
 
 def get_status(session: Session, settings: Settings) -> dict[str, Any]:
@@ -534,6 +550,12 @@ def get_status(session: Session, settings: Settings) -> dict[str, Any]:
         .order_by(col(StreamSession.ended_at).desc())
     ).first()
 
+    hls_path: str | None = None
+    if ready and path_info is not None:
+        name = str(path_info.get("name") or "").strip().strip("/")
+        if _is_publish_path(name):
+            hls_path = f"{name}/index.m3u8"
+
     payload = {
         "live": bool(ready and row.enabled),
         "enabled": row.enabled,
@@ -545,6 +567,7 @@ def get_status(session: Session, settings: Settings) -> dict[str, Any]:
         "video_codec": codec,
         "resolution": resolution,
         "last_ended_at": last.ended_at.isoformat() if last and last.ended_at else None,
+        "hls_path": hls_path,
     }
     _status_cache["payload"] = payload
     _status_cache["expires"] = now + STATUS_CACHE_SECONDS

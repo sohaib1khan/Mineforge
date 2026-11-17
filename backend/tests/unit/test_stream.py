@@ -87,7 +87,7 @@ def test_rotate_key_and_authorize_publish(tmp_path: Path, db_session: Session) -
         publisher_ip="10.0.0.2",
         protocol="rtmp",
     )
-    assert not stream_service.authorize_publish(
+    assert stream_service.authorize_publish(
         db_session,
         settings,
         action="publish",

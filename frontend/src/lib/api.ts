@@ -747,7 +747,7 @@ export async function rotateStreamKey(): Promise<StreamKeyRotateResponse> {
   );
 }
 
-export function streamHlsPlaylistUrl(): string {
-  // OBS publishes MediaMTX path live/stream → HLS playlist under that path.
-  return "/api/stream/hls/live/stream/index.m3u8";
+export function streamHlsPlaylistUrl(hlsPath?: string | null): string {
+  const rel = (hlsPath || "live/stream/index.m3u8").replace(/^\/+/, "");
+  return `/api/stream/hls/${rel}`;
 }

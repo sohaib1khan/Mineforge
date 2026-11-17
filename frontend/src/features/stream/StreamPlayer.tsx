@@ -6,9 +6,10 @@ import { streamHlsPlaylistUrl } from "../../lib/api";
 
 type Props = {
   live: boolean;
+  hlsPath?: string | null;
 };
 
-export function StreamPlayer({ live }: Props) {
+export function StreamPlayer({ live, hlsPath }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [muted, setMuted] = useState(true);
@@ -33,7 +34,7 @@ export function StreamPlayer({ live }: Props) {
       return;
     }
 
-    const src = streamHlsPlaylistUrl();
+    const src = streamHlsPlaylistUrl(hlsPath);
     setError(null);
 
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
@@ -79,7 +80,7 @@ export function StreamPlayer({ live }: Props) {
 
     setError("HLS is not supported in this browser.");
     return undefined;
-  }, [live]);
+  }, [live, hlsPath]);
 
   useEffect(() => {
     const video = videoRef.current;

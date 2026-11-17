@@ -38,17 +38,15 @@ hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 hlsSegmentMaxSize: 50M
 hlsMuxerCloseAfter: 60s
-# MediaMTX v1.12 uses singular hlsAllowOrigin (not hlsAllowOrigins).
 hlsAllowOrigin: "*"
 
 webrtc: no
 srt: no
 
 pathDefaults:
-  # Remux only — no transcoding.
   source: publisher
 
 paths:
-  # OBS Custom: Server rtmp://host:1935/live + Stream Key stream?user=…&pass=…
-  # → MediaMTX path "live/stream"
-  live/stream:
+  # OBS: Server rtmp://host:1935/live + Stream Key <name>?user=…&pass=…
+  # Accept live/stream, live/live, live/obs, etc. (never a trailing-only slash).
+  ~^live/.+:
