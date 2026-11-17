@@ -18,7 +18,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ── Backend base ─────────────────────────────────────────────────────────────
-FROM python:3.12-slim AS backend-base
+FROM python:3.15-slim AS backend-base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 WORKDIR /app
@@ -35,7 +35,7 @@ WORKDIR /app/backend
 CMD ["pytest", "-q", "--cov=app/services", "--cov-report=term-missing", "--cov-fail-under=80"]
 
 # ── Runtime image ────────────────────────────────────────────────────────────
-FROM python:3.12-slim AS runtime
+FROM python:3.15-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     MINEFORGE_STATIC_DIR=/app/static \
