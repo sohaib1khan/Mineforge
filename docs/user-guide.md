@@ -54,7 +54,7 @@
   - Stream Key: `stream?user=publish&pass=…` (from MineForge after regenerate — must start with `stream?`)
 - For remote OBS (different network): forward **TCP 1935** to the MineForge host; set `MINEFORGE_STREAM_RTMP_HOST` and `MINEFORGE_INTERNAL_STREAM_SECRET` in `deploy/.env`.
 - **Cloudflare:** HTTPS for the web UI can stay orange-cloud, but RTMP cannot. Add a **DNS-only (grey cloud)** record (e.g. `rtmp.yourdomain` → server public IP), set `MINEFORGE_STREAM_RTMP_HOST=rtmp.yourdomain`, and point OBS at `rtmp://rtmp.yourdomain:1935/live`.
-- Recommended: 1280×720 or 1920×1080, 30 fps, CBR 2500–4500 kbps, keyframe interval **2 s**, AAC audio. Capture the **game window** only.
+- Recommended: 1280×720 or 1920×1080, 30 fps, CBR 2500–4500 kbps, keyframe interval **1 s**, AAC audio. Capture the **game window** only. Expect roughly **2–5 s** viewer delay (HLS), not true zero-latency.
 - Viewers use MineForge HLS proxy; MediaMTX HLS/API ports stay internal. RTMP publish is authenticated with the stream key (RTMP itself is not encrypted).
 
 ## Backups

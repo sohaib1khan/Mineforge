@@ -51,8 +51,12 @@ export function StreamPlayer({ live, hlsPath }: Props) {
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: false,
+        lowLatencyMode: true,
         backBufferLength: 30,
+        liveSyncDurationCount: 2,
+        liveMaxLatencyDurationCount: 5,
+        liveDurationInfinity: true,
+        maxLiveSyncPlaybackRate: 1.5,
         xhrSetup: (xhr) => {
           xhr.withCredentials = true;
         },

@@ -45,7 +45,7 @@ OBS_NOTES = [
     "Click Show next to Stream Key in OBS and confirm it contains user=publish&pass=.",
     "Cloudflare: do NOT use an orange-cloud hostname for RTMP. Use a DNS-only record or LAN IP.",
     "Forward TCP 1935 on the router/firewall for remote OBS. RTMP is not encrypted — use a strong key.",
-    "Output: 1280×720 or 1920×1080, 30 fps, CBR 2500–4500 kbps, keyframe interval 2 s.",
+    "Output: 1280×720 or 1920×1080, 30 fps, CBR 2500–4500 kbps, keyframe interval 1 s (lower lag).",
     "Encoder: NVENC / VAAPI / QSV if available, else x264 veryfast. Audio: AAC 128–160 kbps, 48 kHz.",
     "Capture the game window only — avoid leaking other windows, chat, or credentials.",
 ]
@@ -606,10 +606,28 @@ def validate_hls_rel_path(rel_path: str) -> str:
     return cleaned
 
 
+def _hls_query_safe(query: str) -> str:
+    """Keep only HLS playlist control query chars (``_HLS_*`` blocking reload)."""
+
+    cleaned = (query or "").strip().lstrip("?")
+    if not cleaned:
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9_=&%.\-]+", cleaned):
+        return ""
+    return cleaned
+
+
 def proxy_hls(
-    settings: Settings, rel_path: str
+    settings: Settings,
+    rel_path: str,
+    *,
+    query: str = "",
 ) -> tuple[Iterator[bytes], str, dict[str, str]]:
     """Stream an HLS playlist/segment from MediaMTX.
+
+    Forwards safe query strings so LL-HLS blocking reloads (``_HLS_msn`` /
+    ``_HLS_part``) work through the proxy. ``gap.mp4`` placeholders from
+    MediaMTX are returned as empty MP4 bodies instead of 404.
 
     Returns ``(body_iterator, media_type, headers)``.
 
@@ -623,9 +641,15 @@ def proxy_hls(
     url = urljoin(base, cleaned)
     if not url.startswith(base):
         raise ForbiddenError("Invalid HLS URL")
+    safe_query = _hls_query_safe(query)
+    if safe_query:
+        url = f"{url}?{safe_query}"
 
+    is_playlist = cleaned.endswith(".m3u8")
+    # LL-HLS playlist polls can block until the next part is ready.
+    read_timeout = 45.0 if is_playlist else 20.0
     try:
-        client = httpx.Client(timeout=httpx.Timeout(15.0, connect=3.0))
+        client = httpx.Client(timeout=httpx.Timeout(read_timeout, connect=3.0))
         request = client.build_request("GET", url)
         response = client.send(request, stream=True)
     except httpx.HTTPError as exc:
@@ -634,6 +658,17 @@ def proxy_hls(
     if response.status_code == 404:
         response.close()
         client.close()
+        name = cleaned.rsplit("/", 1)[-1].lower()
+        if name == "gap.mp4":
+            headers = {
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            }
+
+            def empty() -> Iterator[bytes]:
+                yield b""
+
+            return empty(), "video/mp4", headers
         raise NotFoundError("Segment not found")
     if response.status_code >= 400:
         response.close()
@@ -641,7 +676,6 @@ def proxy_hls(
         raise AppError("Stream media error", status_code=502)
 
     media_type = response.headers.get("content-type") or _guess_media_type(cleaned)
-    is_playlist = cleaned.endswith(".m3u8")
     headers = {
         "Cache-Control": "no-cache" if is_playlist else "public, max-age=1",
         "X-Accel-Buffering": "no",

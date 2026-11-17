@@ -48,6 +48,15 @@ def test_validate_hls_path_rejects_traversal_and_other_roots() -> None:
         stream_service.validate_hls_rel_path("live/evil.exe")
 
 
+def test_hls_query_safe_allows_ll_hls_params() -> None:
+    assert (
+        stream_service._hls_query_safe("_HLS_msn=12&_HLS_part=3&_HLS_skip=YES")
+        == "_HLS_msn=12&_HLS_part=3&_HLS_skip=YES"
+    )
+    assert stream_service._hls_query_safe("evil=1;drop=table") == ""
+    assert stream_service._hls_query_safe("") == ""
+
+
 def test_rotate_key_and_authorize_publish(tmp_path: Path, db_session: Session) -> None:
     settings = _settings(tmp_path)
     admin = User(

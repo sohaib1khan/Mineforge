@@ -105,12 +105,17 @@ def rotate_stream_key(
 @api_router.get("/hls/{path:path}")
 def proxy_hls(
     path: str,
+    request: Request,
     settings: SettingsDep,
     _auth: AuthDep,
 ) -> StreamingResponse:
     """Proxy HLS playlists/segments for logged-in viewers."""
 
-    body, media_type, headers = stream_service.proxy_hls(settings, path)
+    body, media_type, headers = stream_service.proxy_hls(
+        settings,
+        path,
+        query=str(request.url.query),
+    )
     return StreamingResponse(body, media_type=media_type, headers=headers)
 
 
