@@ -43,6 +43,7 @@
 - If the new world fails to come up, it rolls back automatically.
 - While other players are online, either everyone approves (2 minutes) or an admin **Force switch**.
 - Admins can create, import `.mcworld`, export, rename, clone, and delete (not the active world).
+- If you run Bedrock via itzg separately: do **not** set `LEVEL_NAME` (or `GAMEMODE` / `DIFFICULTY`) in that container’s env — itzg will overwrite `server.properties` on every start and undo switches.
 
 ## Stream (OBS live)
 

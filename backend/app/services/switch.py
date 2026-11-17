@@ -417,6 +417,9 @@ def _run_switch(
                     break
                 time.sleep(1)
 
+        # itzg rewrites server.properties from LEVEL_NAME env when set — catch that.
+        _assert_level_name(settings, to_folder, session, operation_id)
+
         # 7) Success
         worlds_service.ensure_world_for_folder(
             session, settings, to_folder, mark_active=True
@@ -474,6 +477,33 @@ def backup_service_wait_healthy(
 
     ops.append_log(session, operation_id, "Waiting for server health")
     _wait_for_server_healthy(settings, timeout=HEALTH_TIMEOUT)
+
+
+def _assert_level_name(
+    settings: Settings,
+    expected_folder: str,
+    session: Session,
+    operation_id: int,
+) -> None:
+    """Fail the switch if Bedrock did not keep the requested level-name.
+
+    Raises:
+        AppError: when server.properties level-name does not match the target.
+    """
+
+    actual = (server_props.read_properties(settings).get("level-name") or "").strip()
+    if actual == expected_folder:
+        return
+    ops.append_log(
+        session,
+        operation_id,
+        f"level-name mismatch after start: want {expected_folder!r}, got {actual!r}",
+    )
+    raise AppError(
+        "Bedrock reset level-name after start (usually itzg LEVEL_NAME env). "
+        "Remove LEVEL_NAME / GAMEMODE / DIFFICULTY from the Bedrock container "
+        f"environment, then retry. Expected {expected_folder!r}, got {actual!r}."
+    )
 
 
 def _set_last_switch(session: Session) -> None:
