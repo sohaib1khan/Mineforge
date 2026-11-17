@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field, field_validator
 from app.models.user import UserRole
 
 MIN_PASSWORD_LENGTH = 12
+# Letters, digits, underscore, dot, hyphen (e.g. sohaib.khan).
+USERNAME_PATTERN = r"^[a-zA-Z0-9][a-zA-Z0-9._-]{2,63}$"
 
 
 def _validate_password(value: str) -> str:
@@ -23,7 +25,7 @@ class SetupStatusResponse(BaseModel):
 
 
 class SetupRequest(BaseModel):
-    username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_]+$")
+    username: str = Field(min_length=3, max_length=64, pattern=USERNAME_PATTERN)
     password: str
     # Optional for older clients; ignored when present.
     setup_code: str | None = None

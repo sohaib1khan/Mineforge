@@ -3,7 +3,7 @@
 ## First run
 
 1. Start MineForge (`./deploy/mf up`) and open the web UI.
-2. If no admin exists yet, you land on **First-time setup** — create the admin username and password (12+ characters). No setup code required.
+2. If no admin exists yet, you land on **First-time setup** — create the admin username (letters, numbers, `.` `_` `-`) and password (12+ characters). No setup code required.
 3. Sign in with that admin account.
 
 ## Account

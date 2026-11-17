@@ -5,11 +5,11 @@ from __future__ import annotations
 from pydantic import BaseModel, Field, field_validator
 
 from app.models.user import UserRole
-from app.schemas.auth import UserPublic, _validate_password
+from app.schemas.auth import USERNAME_PATTERN, UserPublic, _validate_password
 
 
 class UserCreateRequest(BaseModel):
-    username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_]+$")
+    username: str = Field(min_length=3, max_length=64, pattern=USERNAME_PATTERN)
     password: str
     role: UserRole = UserRole.PLAYER
 

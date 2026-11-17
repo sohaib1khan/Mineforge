@@ -54,12 +54,52 @@ export function getCsrfToken(): string | null {
   return csrfToken;
 }
 
+/** Turn FastAPI `detail` (string | validation list | object) into UI text. */
+export function formatErrorDetail(detail: unknown): string | null {
+  if (detail == null) {
+    return null;
+  }
+  if (typeof detail === "string") {
+    return detail;
+  }
+  // FastAPI / Pydantic validation errors: [{ loc, msg, type }, ...]
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => {
+        if (typeof item === "string") {
+          return item;
+        }
+        if (item && typeof item === "object" && "msg" in item) {
+          const loc = Array.isArray((item as { loc?: unknown }).loc)
+            ? (item as { loc: unknown[] }).loc.filter((p) => p !== "body").join(".")
+            : "";
+          const msg = String((item as { msg: unknown }).msg);
+          return loc ? `${loc}: ${msg}` : msg;
+        }
+        return null;
+      })
+      .filter((part): part is string => Boolean(part));
+    if (parts.length > 0) {
+      return parts.join("; ");
+    }
+  }
+  if (typeof detail === "object" && detail !== null && "message" in detail) {
+    return String((detail as { message: unknown }).message);
+  }
+  try {
+    return JSON.stringify(detail);
+  } catch {
+    return null;
+  }
+}
+
 async function parseError(response: Response): Promise<ApiError> {
   let message = response.statusText || "Request failed";
   try {
-    const body = (await response.json()) as { detail?: string };
-    if (body.detail) {
-      message = body.detail;
+    const body = (await response.json()) as { detail?: unknown };
+    const formatted = formatErrorDetail(body.detail);
+    if (formatted) {
+      message = formatted;
     }
   } catch {
     // ignore non-JSON error bodies

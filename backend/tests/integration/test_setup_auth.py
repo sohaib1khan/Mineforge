@@ -26,6 +26,18 @@ def test_fresh_install_shows_setup_without_code(client: TestClient) -> None:
     assert status_after.json()["needs_setup"] is False
 
 
+def test_setup_allows_dotted_username(client: TestClient) -> None:
+    ok = client.post(
+        "/api/setup",
+        json={
+            "username": "sohaib.khan",
+            "password": "admin-password-12",
+        },
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["username"] == "sohaib.khan"
+
+
 def test_second_setup_attempt_rejected(client: TestClient) -> None:
     first = client.post(
         "/api/setup",
