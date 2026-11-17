@@ -10,11 +10,11 @@
 
 - Change your own password under **Account**.
 - Toggle dark/light theme (stored in the browser) from Account or the shell controls.
-- On phones, use the bottom nav; on desktop, use the sidebar.
+- On phones, use the bottom nav; on desktop, use the sidebar (theme and sign out stay pinned at the bottom).
 
 ## Metrics
 
-- Open **Metrics** for players-online, CPU, memory, joins-per-day, playtime leaderboard, and disk usage.
+- Open **Metrics** for summary peaks, players-online, CPU, memory, network rates, joins-per-day, playtime leaderboard, and disk usage (including last played per world).
 - The dashboard also shows the latest CPU/memory sample and weekly playtime.
 
 ## Network & Help
@@ -36,7 +36,8 @@
 
 ## Worlds (switch here)
 
-- Open **Worlds** in the nav (sidebar or phone bottom bar).
+- Open **Worlds** in the nav (sidebar or phone bottom bar). Each world shows last played, size, mode, and seed when known.
+- Long lists (add-ons, backups, metrics tables) scroll inside the page so the sidebar stays usable.
 - The active world is labeled **Active**. On any other world, tap **Switch**.
 - MineForge warns in-game, backs up the current world, stops Bedrock, changes `level-name`, starts, and health-checks.
 - If the new world fails to come up, it rolls back automatically.

@@ -133,63 +133,66 @@ export function BackupsPage() {
           }
         />
       ) : (
-        <ul className="divide-y divide-border rounded-md border border-border">
-          {backups.map((b) => (
-            <li
-              key={b.id}
-              className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div className="min-w-0 space-y-1">
-                <p className="font-medium text-text truncate">
-                  {b.world_folder}{" "}
-                  <span className="text-muted font-normal">#{b.id}</span>
-                </p>
-                <p className="text-xs text-muted">
-                  {b.kind} · {formatBytes(b.size_bytes)} ·{" "}
-                  {b.verified ? "verified" : "unverified"} · {formatWhen(b.created_at)}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {isAdmin ? (
-                  <>
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `Restore backup #${b.id} for ${b.world_folder}? A pre-restore backup is taken first.`,
-                          )
-                        ) {
-                          restoreMutation.mutate(b.id);
-                        }
-                      }}
-                      disabled={restoreMutation.isPending}
-                    >
-                      Restore
-                    </Button>
-                    <a
-                      className="inline-flex min-h-11 items-center justify-center rounded-md border border-border bg-surface px-4 py-2 text-sm hover:bg-border/40"
-                      href={`/api/backups/${b.id}/download`}
-                    >
-                      Download
-                    </a>
-                    <Button
-                      variant="danger"
-                      onClick={() => {
-                        if (window.confirm(`Delete backup #${b.id}?`)) {
-                          deleteMutation.mutate(b.id);
-                        }
-                      }}
-                      disabled={deleteMutation.isPending}
-                    >
-                      Delete
-                    </Button>
-                  </>
-                ) : null}
-              </div>
-            </li>
-          ))}
-        </ul>
+        <div className="max-h-[min(65vh,40rem)] overflow-y-auto rounded-md border border-border">
+          <ul className="divide-y divide-border">
+            {backups.map((b) => (
+              <li
+                key={b.id}
+                className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0 space-y-1">
+                  <p className="font-medium text-text truncate">
+                    {b.world_folder}{" "}
+                    <span className="text-muted font-normal">#{b.id}</span>
+                  </p>
+                  <p className="text-xs text-muted">
+                    {b.kind} · {formatBytes(b.size_bytes)} ·{" "}
+                    {b.verified ? "verified" : "unverified"} ·{" "}
+                    {formatWhen(b.created_at)}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {isAdmin ? (
+                    <>
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Restore backup #${b.id} for ${b.world_folder}? A pre-restore backup is taken first.`,
+                            )
+                          ) {
+                            restoreMutation.mutate(b.id);
+                          }
+                        }}
+                        disabled={restoreMutation.isPending}
+                      >
+                        Restore
+                      </Button>
+                      <a
+                        className="inline-flex min-h-11 items-center justify-center rounded-md border border-border bg-surface px-4 py-2 text-sm hover:bg-border/40"
+                        href={`/api/backups/${b.id}/download`}
+                      >
+                        Download
+                      </a>
+                      <Button
+                        variant="danger"
+                        onClick={() => {
+                          if (window.confirm(`Delete backup #${b.id}?`)) {
+                            deleteMutation.mutate(b.id);
+                          }
+                        }}
+                        disabled={deleteMutation.isPending}
+                      >
+                        Delete
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <OperationDrawer

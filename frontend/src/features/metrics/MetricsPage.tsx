@@ -15,6 +15,7 @@ import {
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SkeletonLines } from "../../components/ui/Skeleton";
 import { fetchMetricsOverview } from "../../lib/api";
+import type { MetricSample } from "../../lib/types";
 import { downsample, formatBytes, formatHours } from "./format";
 
 function chartTick(iso: string): string {
@@ -28,6 +29,60 @@ function chartTick(iso: string): string {
   }
 }
 
+function formatWhen(iso: string | null): string {
+  if (!iso) return "Never recorded";
+  try {
+    return new Date(iso).toLocaleString([], {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function withNetRates(samples: MetricSample[]) {
+  return samples.map((s, i) => {
+    const prev = i > 0 ? samples[i - 1] : undefined;
+    let rx_kbps = 0;
+    let tx_kbps = 0;
+    if (prev) {
+      const dt = Math.max(
+        1,
+        (new Date(s.ts).getTime() - new Date(prev.ts).getTime()) / 1000,
+      );
+      rx_kbps = Math.max(0, (s.net_rx_bytes - prev.net_rx_bytes) / 1024 / dt);
+      tx_kbps = Math.max(0, (s.net_tx_bytes - prev.net_tx_bytes) / 1024 / dt);
+    }
+    return {
+      ...s,
+      label: chartTick(s.ts),
+      mem_mb: Math.round(s.mem_bytes / (1024 * 1024)),
+      mem_limit_mb: Math.round(s.mem_limit_bytes / (1024 * 1024)),
+      rx_kbps: Math.round(rx_kbps * 10) / 10,
+      tx_kbps: Math.round(tx_kbps * 10) / 10,
+    };
+  });
+}
+
+function summarize(samples: ReturnType<typeof withNetRates>) {
+  if (samples.length === 0) {
+    return null;
+  }
+  const latest = samples[samples.length - 1]!;
+  const peakPlayers = Math.max(...samples.map((s) => s.players_online));
+  const peakCpu = Math.max(...samples.map((s) => s.cpu_pct));
+  const peakMem = Math.max(...samples.map((s) => s.mem_mb));
+  const avgCpu = samples.reduce((sum, s) => sum + s.cpu_pct, 0) / samples.length;
+  return {
+    latest,
+    peakPlayers,
+    peakCpu,
+    peakMem,
+    avgCpu,
+  };
+}
+
 export function MetricsPage() {
   const query = useQuery({
     queryKey: ["metrics-overview"],
@@ -36,11 +91,10 @@ export function MetricsPage() {
   });
 
   const data = query.data;
-  const samples = downsample(data?.samples ?? [], 120).map((s) => ({
-    ...s,
-    label: chartTick(s.ts),
-    mem_mb: Math.round(s.mem_bytes / (1024 * 1024)),
-  }));
+  const samples = withNetRates(downsample(data?.samples ?? [], 120));
+  const summary = summarize(samples);
+  const joinsTotal = (data?.joins ?? []).reduce((sum, j) => sum + j.joins, 0);
+  const playtimeTotal = (data?.playtime ?? []).reduce((sum, p) => sum + p.seconds, 0);
 
   return (
     <section className="space-y-8">
@@ -65,6 +119,35 @@ export function MetricsPage() {
           title="No samples yet"
           description="Stats appear after the first sample (about 30 seconds once the scheduler is running)."
         />
+      ) : null}
+
+      {summary ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label="Players now"
+            value={String(summary.latest.players_online)}
+            hint={`Peak ${summary.peakPlayers} in window`}
+          />
+          <StatCard
+            label="CPU now"
+            value={`${summary.latest.cpu_pct.toFixed(1)}%`}
+            hint={`Peak ${summary.peakCpu.toFixed(1)}% · avg ${summary.avgCpu.toFixed(1)}%`}
+          />
+          <StatCard
+            label="Memory now"
+            value={`${summary.latest.mem_mb} MB`}
+            hint={
+              summary.latest.mem_limit_mb > 0
+                ? `Peak ${summary.peakMem} MB · limit ${summary.latest.mem_limit_mb} MB`
+                : `Peak ${summary.peakMem} MB`
+            }
+          />
+          <StatCard
+            label="Joins (7d)"
+            value={String(joinsTotal)}
+            hint={`${formatHours(playtimeTotal)} total playtime`}
+          />
+        </div>
       ) : null}
 
       {data && samples.length > 0 ? (
@@ -157,6 +240,42 @@ export function MetricsPage() {
             </ResponsiveContainer>
           </ChartCard>
 
+          <ChartCard title="Network (KB/s)">
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={samples}>
+                <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fill: "var(--color-muted)", fontSize: 11 }}
+                />
+                <YAxis tick={{ fill: "var(--color-muted)", fontSize: 11 }} width={40} />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--color-surface)",
+                    border: "1px solid var(--color-border)",
+                    color: "var(--color-text)",
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="rx_kbps"
+                  stroke="var(--color-primary)"
+                  fill="var(--color-primary)"
+                  fillOpacity={0.15}
+                  name="RX KB/s"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="tx_kbps"
+                  stroke="var(--color-accent)"
+                  fill="var(--color-accent)"
+                  fillOpacity={0.12}
+                  name="TX KB/s"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
           <ChartCard title="Joins per day">
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={data.joins}>
@@ -192,19 +311,21 @@ export function MetricsPage() {
             {data.playtime.length === 0 ? (
               <p className="text-sm text-muted">No sessions in this window.</p>
             ) : (
-              <ul className="divide-y divide-border rounded-md border border-border">
-                {data.playtime.map((p) => (
-                  <li
-                    key={p.gamertag}
-                    className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
-                  >
-                    <span className="truncate">{p.gamertag}</span>
-                    <span className="font-pixel text-primary">
-                      {formatHours(p.seconds)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <div className="max-h-72 overflow-y-auto rounded-md border border-border">
+                <ul className="divide-y divide-border">
+                  {data.playtime.map((p) => (
+                    <li
+                      key={p.gamertag}
+                      className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
+                    >
+                      <span className="truncate">{p.gamertag}</span>
+                      <span className="font-pixel text-primary">
+                        {formatHours(p.seconds)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
 
@@ -217,22 +338,36 @@ export function MetricsPage() {
             {data.disk.worlds.length === 0 ? (
               <p className="text-sm text-muted">No worlds tracked yet.</p>
             ) : (
-              <ul className="divide-y divide-border rounded-md border border-border">
-                {data.disk.worlds.map((w) => (
-                  <li
-                    key={w.folder_name}
-                    className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
-                  >
-                    <span className="truncate">
-                      {w.display_name}
-                      {w.is_active ? (
-                        <span className="ml-2 text-xs text-primary">active</span>
-                      ) : null}
-                    </span>
-                    <span className="text-muted">{formatBytes(w.size_bytes)}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="max-h-72 overflow-y-auto rounded-md border border-border">
+                <ul className="divide-y divide-border">
+                  {data.disk.worlds.map((w) => (
+                    <li
+                      key={w.folder_name}
+                      className="flex items-start justify-between gap-3 px-4 py-3 text-sm"
+                    >
+                      <div className="min-w-0 space-y-1">
+                        <p className="truncate">
+                          {w.display_name}
+                          {w.is_active ? (
+                            <span className="ml-2 text-xs text-primary">active</span>
+                          ) : null}
+                        </p>
+                        <p className="text-xs text-muted">
+                          Last played: {formatWhen(w.last_played_at)}
+                        </p>
+                        {(w.gamemode || w.difficulty) && (
+                          <p className="text-xs text-muted">
+                            {[w.gamemode, w.difficulty].filter(Boolean).join(" · ")}
+                          </p>
+                        )}
+                      </div>
+                      <span className="shrink-0 text-muted">
+                        {formatBytes(w.size_bytes)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
         </div>
@@ -241,29 +376,50 @@ export function MetricsPage() {
       {data && data.backups.length > 0 ? (
         <div className="space-y-3">
           <h2 className="font-pixel text-lg">Recent backups</h2>
-          <ul className="divide-y divide-border rounded-md border border-border">
-            {data.backups
-              .slice()
-              .reverse()
-              .slice(0, 12)
-              .map((b) => (
-                <li
-                  key={b.id}
-                  className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"
-                >
-                  <span className="truncate">
-                    {b.world_folder} <span className="text-muted">· {b.kind}</span>
-                  </span>
-                  <span className="text-muted">
-                    {formatBytes(b.size_bytes)}
-                    {b.verified ? " · verified" : ""}
-                  </span>
-                </li>
-              ))}
-          </ul>
+          <div className="max-h-72 overflow-y-auto rounded-md border border-border">
+            <ul className="divide-y divide-border">
+              {data.backups
+                .slice()
+                .reverse()
+                .slice(0, 12)
+                .map((b) => (
+                  <li
+                    key={b.id}
+                    className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"
+                  >
+                    <span className="truncate">
+                      {b.world_folder} <span className="text-muted">· {b.kind}</span>
+                    </span>
+                    <span className="text-muted">
+                      {formatBytes(b.size_bytes)}
+                      {b.verified ? " · verified" : ""}
+                      {b.created_at ? ` · ${formatWhen(b.created_at)}` : ""}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          </div>
         </div>
       ) : null}
     </section>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-surface/70 px-4 py-3 space-y-1">
+      <p className="text-xs text-muted">{label}</p>
+      <p className="font-pixel text-xl text-primary">{value}</p>
+      <p className="text-xs text-muted">{hint}</p>
+    </div>
   );
 }
 

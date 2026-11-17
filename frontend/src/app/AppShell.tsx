@@ -51,16 +51,19 @@ export function AppShell() {
     <div className="min-h-screen flex flex-col md:flex-row">
       {user ? (
         <aside
-          className="hidden w-56 shrink-0 border-r border-border bg-surface/90 md:flex md:flex-col"
+          className="sticky top-0 z-30 hidden h-screen w-56 shrink-0 self-start border-r border-border bg-surface/95 md:flex md:flex-col"
           aria-label="Sidebar"
         >
-          <div className="border-b border-border px-4 py-4">
+          <div className="shrink-0 border-b border-border px-4 py-4">
             <p className="font-pixel text-lg tracking-wide text-primary">
               {APP_DISPLAY_NAME}
             </p>
             <p className="mt-1 truncate text-xs text-muted">{user.username}</p>
           </div>
-          <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="Main">
+          <nav
+            className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3"
+            aria-label="Main"
+          >
             {visible.map((item) => (
               <NavLink
                 key={item.to}
@@ -72,7 +75,7 @@ export function AppShell() {
               </NavLink>
             ))}
           </nav>
-          <div className="space-y-2 border-t border-border p-3">
+          <div className="shrink-0 space-y-2 border-t border-border bg-surface/95 p-3">
             <Button
               variant="ghost"
               className="w-full justify-start"

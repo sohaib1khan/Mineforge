@@ -248,6 +248,9 @@ export type MetricsDiskSummary = {
     folder_name: string;
     size_bytes: number;
     is_active: boolean;
+    last_played_at: string | null;
+    gamemode: string | null;
+    difficulty: string | null;
   }>;
   worlds_bytes: number;
   backups_bytes: number;

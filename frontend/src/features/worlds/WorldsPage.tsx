@@ -25,6 +25,18 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatWhen(iso: string | null): string {
+  if (!iso) return "Never recorded";
+  try {
+    return new Date(iso).toLocaleString([], {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return iso;
+  }
+}
+
 export function WorldsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -169,12 +181,27 @@ export function WorldsPage() {
                     <span className="text-xs text-primary">Active</span>
                   ) : null}
                 </div>
-                <p className="text-xs text-muted truncate">{w.folder_name}</p>
+                <p className="text-xs text-muted truncate">Folder: {w.folder_name}</p>
+                <p className="text-xs text-muted">
+                  Last played: {formatWhen(w.last_played_at)}
+                </p>
                 <p className="text-xs text-muted">
                   {formatBytes(w.size_bytes)}
                   {w.valid ? "" : " · incomplete"}
+                  {!w.on_disk ? " · missing on disk" : ""}
                   {w.gamemode ? ` · ${w.gamemode}` : ""}
+                  {w.difficulty ? ` · ${w.difficulty}` : ""}
+                  {w.needs_experiments ? " · experiments" : ""}
                 </p>
+                {w.seed ? (
+                  <p className="text-xs text-muted truncate">Seed: {w.seed}</p>
+                ) : null}
+                {w.description ? (
+                  <p className="text-xs text-muted line-clamp-2">{w.description}</p>
+                ) : null}
+                {w.created_at ? (
+                  <p className="text-xs text-muted">Added {formatWhen(w.created_at)}</p>
+                ) : null}
                 {w.warnings.length ? (
                   <p className="text-xs text-warning">{w.warnings[0]}</p>
                 ) : null}

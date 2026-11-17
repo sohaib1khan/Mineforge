@@ -40,6 +40,27 @@ def worlds_root(settings: Settings) -> Path:
     return resolve_under(settings.data_dir, "worlds")
 
 
+def _folder_last_played(folder: Path) -> datetime | None:
+    """Best-effort last activity time from world files on disk."""
+
+    candidates = (
+        folder / "level.dat",
+        folder / "levelname.txt",
+        folder / "db",
+    )
+    newest: float | None = None
+    for path in candidates:
+        try:
+            if path.exists():
+                mtime = path.stat().st_mtime
+                newest = mtime if newest is None else max(newest, mtime)
+        except OSError:
+            continue
+    if newest is None:
+        return None
+    return datetime.fromtimestamp(newest, tz=UTC)
+
+
 def world_path(settings: Settings, folder_name: str) -> Path:
     """Resolve a world folder under /data/worlds.
 
@@ -175,9 +196,18 @@ def sync_from_disk(session: Session, settings: Settings) -> list[World]:
         except AppError:
             continue
         on_disk.add(folder)
-        ensure_world_for_folder(
+        world = ensure_world_for_folder(
             session, settings, folder, mark_active=(folder == active)
         )
+        # Keep last played in sync with on-disk activity (level.dat / db mtime).
+        stamp = _folder_last_played(child)
+        if stamp is not None:
+            current = world.last_played_at
+            if current is not None and current.tzinfo is None:
+                current = current.replace(tzinfo=UTC)
+            if current is None or stamp > current:
+                world.last_played_at = stamp
+                session.add(world)
 
     # Deactivate rows whose folders vanished (keep row for history of backups)
     for world in session.exec(select(World)).all():

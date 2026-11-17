@@ -222,6 +222,13 @@ def disk_summary(session: Session, settings: Settings) -> dict[str, Any]:
             "folder_name": w.folder_name,
             "size_bytes": int(w.size_bytes or 0),
             "is_active": bool(w.is_active),
+            "last_played_at": (
+                _ensure_aware(w.last_played_at).isoformat()
+                if w.last_played_at
+                else None
+            ),
+            "gamemode": w.gamemode,
+            "difficulty": w.difficulty,
         }
         for w in worlds
     ]

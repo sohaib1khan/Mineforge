@@ -258,44 +258,51 @@ export function AddonsPage() {
               }
             />
           ) : (
-            <ul className="divide-y divide-border rounded-md border border-border">
-              {addons.map((a) => (
-                <li
-                  key={a.id}
-                  className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0 space-y-1">
-                    <p className="font-medium truncate">
-                      {a.name}{" "}
-                      <span className="text-muted font-normal text-sm">
-                        {a.kind} · v{a.version}
-                      </span>
-                    </p>
-                    <p className="text-xs text-muted">
-                      {formatBytes(a.size_bytes)}
-                      {a.pair_name ? ` · paired with ${a.pair_name}` : ""}
-                    </p>
-                    {a.flags.length ? (
-                      <p className="text-xs text-warning">
-                        {a.flags.map(flagLabel).join(" · ")}
-                      </p>
-                    ) : null}
-                  </div>
-                  {isAdmin ? (
-                    <Button
-                      variant="danger"
-                      onClick={() => {
-                        if (window.confirm(`Delete ${a.name}?`)) {
-                          deleteMutation.mutate(a.id);
-                        }
-                      }}
+            <div className="space-y-2">
+              <div className="max-h-[min(60vh,36rem)] overflow-y-auto rounded-md border border-border">
+                <ul className="divide-y divide-border">
+                  {addons.map((a) => (
+                    <li
+                      key={a.id}
+                      className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
                     >
-                      Delete
-                    </Button>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+                      <div className="min-w-0 space-y-1">
+                        <p className="font-medium truncate">
+                          {a.name}{" "}
+                          <span className="text-muted font-normal text-sm">
+                            {a.kind} · v{a.version}
+                          </span>
+                        </p>
+                        <p className="text-xs text-muted">
+                          {formatBytes(a.size_bytes)}
+                          {a.pair_name ? ` · paired with ${a.pair_name}` : ""}
+                        </p>
+                        {a.flags.length ? (
+                          <p className="text-xs text-warning">
+                            {a.flags.map(flagLabel).join(" · ")}
+                          </p>
+                        ) : null}
+                      </div>
+                      {isAdmin ? (
+                        <Button
+                          variant="danger"
+                          onClick={() => {
+                            if (window.confirm(`Delete ${a.name}?`)) {
+                              deleteMutation.mutate(a.id);
+                            }
+                          }}
+                        >
+                          Delete
+                        </Button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <p className="text-xs text-muted">
+                {addons.length} pack{addons.length === 1 ? "" : "s"} in library
+              </p>
+            </div>
           )}
         </div>
       ) : (
@@ -328,29 +335,31 @@ export function AddonsPage() {
                 ({profileQuery.data?.download_size.enabled_pack_count ?? draft.length}{" "}
                 packs)
               </p>
-              <ul className="space-y-2">
-                {addons.map((a) => {
-                  const on = draft.some((e) => e.addon_id === a.id && e.enabled);
-                  return (
-                    <li key={a.id} className="flex items-center gap-3 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={on}
-                        onChange={() => toggleInProfile(a)}
-                        id={`addon-${a.id}`}
-                      />
-                      <label htmlFor={`addon-${a.id}`}>
-                        {a.name}{" "}
-                        <span className="text-muted">
-                          ({a.kind}
-                          {a.encrypted ? ", encrypted" : ""}
-                          {a.missing_pair ? ", missing pair" : ""})
-                        </span>
-                      </label>
-                    </li>
-                  );
-                })}
-              </ul>
+              <div className="max-h-[min(50vh,28rem)] overflow-y-auto rounded-md border border-border p-3">
+                <ul className="space-y-2">
+                  {addons.map((a) => {
+                    const on = draft.some((e) => e.addon_id === a.id && e.enabled);
+                    return (
+                      <li key={a.id} className="flex items-center gap-3 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() => toggleInProfile(a)}
+                          id={`addon-${a.id}`}
+                        />
+                        <label htmlFor={`addon-${a.id}`}>
+                          {a.name}{" "}
+                          <span className="text-muted">
+                            ({a.kind}
+                            {a.encrypted ? ", encrypted" : ""}
+                            {a.missing_pair ? ", missing pair" : ""})
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="secondary"

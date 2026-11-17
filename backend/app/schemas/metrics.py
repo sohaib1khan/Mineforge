@@ -33,6 +33,9 @@ class WorldDiskEntry(BaseModel):
     folder_name: str
     size_bytes: int
     is_active: bool
+    last_played_at: str | None = None
+    gamemode: str | None = None
+    difficulty: str | None = None
 
 
 class DiskSummaryResponse(BaseModel):
