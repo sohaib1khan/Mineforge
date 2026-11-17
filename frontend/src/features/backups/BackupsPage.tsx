@@ -5,7 +5,14 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { SkeletonLines } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
-import { createBackup, deleteBackup, fetchBackups, restoreBackup } from "../../lib/api";
+import {
+  backupDownloadPath,
+  createBackup,
+  deleteBackup,
+  downloadAuthenticatedFile,
+  fetchBackups,
+  restoreBackup,
+} from "../../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { OperationDrawer } from "../operations/OperationDrawer";
 
@@ -169,12 +176,21 @@ export function BackupsPage() {
                       >
                         Restore
                       </Button>
-                      <a
-                        className="inline-flex min-h-11 items-center justify-center rounded-md border border-border bg-surface px-4 py-2 text-sm hover:bg-border/40"
-                        href={`/api/backups/${b.id}/download`}
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          void downloadAuthenticatedFile(
+                            backupDownloadPath(b.id),
+                            `${b.world_folder}-backup-${b.id}.tar.zst`,
+                          ).catch((err: unknown) => {
+                            const message =
+                              err instanceof Error ? err.message : "Download failed";
+                            toast.push(message, "error");
+                          });
+                        }}
                       >
-                        Download
-                      </a>
+                        Save to device
+                      </Button>
                       <Button
                         variant="danger"
                         onClick={() => {

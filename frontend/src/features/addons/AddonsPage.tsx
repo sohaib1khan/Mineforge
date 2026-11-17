@@ -6,10 +6,12 @@ import { Button } from "../../components/ui/Button";
 import { SkeletonLines } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import {
+  addonLibraryBackupDownloadPath,
   applyWorldAddons,
   createAddonLibraryBackup,
   deleteAddon,
   deleteAddonLibraryBackup,
+  downloadAuthenticatedFile,
   fetchAddonLibraryBackups,
   fetchAddons,
   fetchWorldProfile,
@@ -420,12 +422,24 @@ export function AddonsPage() {
                           >
                             Restore
                           </Button>
-                          <a
-                            className="inline-flex min-h-11 items-center justify-center rounded-md border border-border bg-surface px-4 py-2 text-sm hover:bg-border/40 mf-pressable"
-                            href={`/api/addons/library-backups/${b.id}/download`}
+                          <Button
+                            variant="secondary"
+                            className="mf-pressable"
+                            onClick={() => {
+                              void downloadAuthenticatedFile(
+                                addonLibraryBackupDownloadPath(b.id),
+                                `addon-library-backup-${b.id}.tar.zst`,
+                              ).catch((err: unknown) => {
+                                const message =
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Download failed";
+                                toast.push(message, "error");
+                              });
+                            }}
                           >
-                            Download
-                          </a>
+                            Save to device
+                          </Button>
                           <Button
                             variant="danger"
                             onClick={() => {

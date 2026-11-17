@@ -354,6 +354,52 @@ export async function fetchBackup(backupId: number): Promise<BackupResponse> {
   return request<BackupResponse>(`/api/backups/${backupId}`);
 }
 
+/** Trigger a same-origin authenticated file download to the user's machine. */
+export async function downloadAuthenticatedFile(
+  path: string,
+  fallbackFilename: string,
+): Promise<void> {
+  const response = await fetch(path, {
+    method: "GET",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+
+  const disposition = response.headers.get("Content-Disposition");
+  let filename = fallbackFilename;
+  const utfMatch = disposition?.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+  const plainMatch = disposition?.match(/filename\s*=\s*"?([^";]+)"?/i);
+  if (utfMatch?.[1]) {
+    filename = decodeURIComponent(utfMatch[1]);
+  } else if (plainMatch?.[1]) {
+    filename = plainMatch[1];
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+export function backupDownloadPath(backupId: number): string {
+  return `/api/backups/${backupId}/download`;
+}
+
+export function addonLibraryBackupDownloadPath(backupId: number): string {
+  return `/api/addons/library-backups/${backupId}/download`;
+}
+
 export async function fetchOperations(limit = 50): Promise<OperationListResponse> {
   return request<OperationListResponse>(`/api/operations?limit=${limit}`);
 }

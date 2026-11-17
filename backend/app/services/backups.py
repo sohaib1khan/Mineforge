@@ -45,12 +45,12 @@ from app.services.paths import resolve_under
 logger = logging.getLogger(__name__)
 
 SAVE_QUERY_FILE_RE = re.compile(r"^(?P<path>.+):(?P<size>\d+)\s*$")
-SAVE_READY_MARKERS = (
-    "files are now ready to be copied",
-    "data saved",
-)
+SAVE_READY_MARKERS = ("files are now ready to be copied",)
+SAVE_BUSY_MARKERS = ("a previous save has not been completed",)
 SAVE_HOLD_TIMEOUT = 90.0
 SAVE_QUERY_TIMEOUT = 90.0
+SAVE_QUERY_POLL_INTERVAL = 1.0
+SAVE_QUERY_RESPONSE_TIMEOUT = 10.0
 HEALTH_TIMEOUT = 120.0
 SERVER_STARTED_MARKERS = ("server started", "server started.")
 
@@ -440,7 +440,7 @@ def _live_copy_world(
     operation_id: int,
     session: Session,
 ) -> None:
-    """save hold → save query → copy truncated files → save resume."""
+    """save hold → poll save query until ready → copy truncated files → save resume."""
 
     cursor = _console_cursor()
     try:
@@ -456,19 +456,8 @@ def _live_copy_world(
             soft=True,
         )
         time.sleep(0.5)
-        cursor = _console_cursor()
-        console_service.send_command(settings, "save query", actor="backup")
-        lines = _wait_for_console(
-            cursor,
-            lambda ls: any(
-                any(m in ln.lower() for m in SAVE_READY_MARKERS) for ln in ls
-            )
-            or any(SAVE_QUERY_FILE_RE.match(ln.strip()) for ln in ls),
-            timeout=SAVE_QUERY_TIMEOUT,
-        )
-        file_map = parse_save_query_files(lines)
-        if not file_map:
-            raise AppError("save query returned no files")
+        ops.append_log(session, operation_id, "Polling save query until files ready")
+        file_map = _poll_save_query_files(settings, world_dir)
         ops.append_log(
             session, operation_id, f"Copying {len(file_map)} files from save query"
         )
@@ -482,22 +471,100 @@ def _live_copy_world(
 
 
 def parse_save_query_files(lines: list[str]) -> dict[str, int]:
-    """Parse `path:size` lines from save query console output."""
+    """Parse Bedrock `path:size` entries from save query console output.
+
+    Bedrock emits a comma-separated list on one line, e.g.
+    ``worlds/W/db/0001.ldb:120, worlds/W/level.dat:40``.
+    """
 
     result: dict[str, int] = {}
     for raw in lines:
         line = raw.strip()
-        # Strip optional "File," prefix some builds use
-        if line.lower().startswith("file,"):
-            line = line[5:]
-        match = SAVE_QUERY_FILE_RE.match(line)
-        if not match:
+        if not line:
             continue
-        path = match.group("path").strip()
-        size = int(match.group("size"))
-        if path:
-            result[path] = size
+        # Strip optional "File," prefix some builds use (not a path entry).
+        if line.lower().startswith("file,"):
+            line = line[5:].strip()
+        for segment in line.split(","):
+            part = segment.strip()
+            if not part:
+                continue
+            match = SAVE_QUERY_FILE_RE.match(part)
+            if not match:
+                continue
+            path = match.group("path").strip()
+            size = int(match.group("size"))
+            if path:
+                result[path] = size
     return result
+
+
+def _console_text_has_marker(lines: list[str], markers: tuple[str, ...]) -> bool:
+    return any(any(m in ln.lower() for m in markers) for ln in lines)
+
+
+def _file_map_covers_db(file_map: dict[str, int], world_folder: str) -> bool:
+    """True if save query listed at least one LevelDB path under this world."""
+
+    needle = f"{world_folder}/db/"
+    for rel in file_map:
+        normalized = rel.replace("\\", "/")
+        if needle in normalized or normalized.startswith("db/"):
+            return True
+    return False
+
+
+def _poll_save_query_files(settings: Settings, world_dir: Path) -> dict[str, int]:
+    """Re-issue ``save query`` until Bedrock reports files ready to copy.
+
+    Raises:
+        AppError: on timeout or empty ready response.
+    """
+
+    deadline = time.monotonic() + SAVE_QUERY_TIMEOUT
+    last_lines: list[str] = []
+    require_db = (world_dir / "db").is_dir()
+
+    while time.monotonic() < deadline:
+        cursor = _console_cursor()
+        console_service.send_command(settings, "save query", actor="backup")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        lines = _wait_for_console(
+            cursor,
+            lambda ls: (
+                _console_text_has_marker(ls, SAVE_READY_MARKERS)
+                or _console_text_has_marker(ls, SAVE_BUSY_MARKERS)
+                or bool(parse_save_query_files(ls))
+            ),
+            timeout=min(SAVE_QUERY_RESPONSE_TIMEOUT, remaining),
+            soft=True,
+        )
+        if lines:
+            last_lines = lines
+
+        if _console_text_has_marker(lines, SAVE_BUSY_MARKERS):
+            time.sleep(SAVE_QUERY_POLL_INTERVAL)
+            continue
+
+        if _console_text_has_marker(lines, SAVE_READY_MARKERS):
+            file_map = parse_save_query_files(lines)
+            if not file_map:
+                time.sleep(SAVE_QUERY_POLL_INTERVAL)
+                continue
+            if require_db and not _file_map_covers_db(file_map, world_dir.name):
+                # Ready marker without db/ is incomplete; keep polling.
+                time.sleep(SAVE_QUERY_POLL_INTERVAL)
+                continue
+            return file_map
+
+        time.sleep(SAVE_QUERY_POLL_INTERVAL)
+
+    file_map = parse_save_query_files(last_lines)
+    if file_map and (not require_db or _file_map_covers_db(file_map, world_dir.name)):
+        return file_map
+    raise AppError("Timed out waiting for save query file list")
 
 
 def _copy_truncated_files(
@@ -788,19 +855,7 @@ def _live_copy_world_no_op(settings: Settings, world_dir: Path, dest_dir: Path) 
             cursor, lambda _ls: True, timeout=SAVE_HOLD_TIMEOUT, soft=True
         )
         time.sleep(0.5)
-        cursor = _console_cursor()
-        console_service.send_command(settings, "save query", actor="backup")
-        lines = _wait_for_console(
-            cursor,
-            lambda ls: any(
-                any(m in ln.lower() for m in SAVE_READY_MARKERS) for ln in ls
-            )
-            or any(SAVE_QUERY_FILE_RE.match(ln.strip()) for ln in ls),
-            timeout=SAVE_QUERY_TIMEOUT,
-        )
-        file_map = parse_save_query_files(lines)
-        if not file_map:
-            raise AppError("save query returned no files")
+        file_map = _poll_save_query_files(settings, world_dir)
         _copy_truncated_files(settings.data_dir, dest_dir, file_map, world_dir)
     finally:
         try:

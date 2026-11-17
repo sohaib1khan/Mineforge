@@ -30,7 +30,7 @@ from app.services import operations as ops
 from app.services.archive_safety import (
     atomic_replace_dir,
     copy_tree,
-    create_tar_zst,
+    create_tar_zst_mixed,
     extract_tar_zst,
     sha256_file,
     verify_tar_zst,
@@ -141,6 +141,8 @@ def create_addon_library_backup_sync(
 ) -> AddonLibraryBackup:
     """Synchronously archive the pack library + assignment manifest.
 
+    Streams packs directly into ``.tar.zst`` (no full copy under ``/tmp``).
+
     Raises:
         AppError: if packing or hashing fails.
     """
@@ -150,19 +152,30 @@ def create_addon_library_backup_sync(
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     dest = addon_backups_dir(settings) / f"addon-library-{stamp}.tar.zst"
     manifest = _build_manifest(session)
+    manifest_bytes = json.dumps(manifest, indent=2).encode("utf-8")
 
-    with tempfile.TemporaryDirectory(prefix="mf-addon-bak-") as tmp:
-        staging = Path(tmp) / "payload"
-        staging.mkdir()
-        (staging / "manifest.json").write_text(
-            json.dumps(manifest, indent=2), encoding="utf-8"
-        )
-        packs_dest = staging / "packs"
+    # Archive into the addon-backups volume directly — do not stage under /tmp.
+    empty_packs: Path | None = None
+    try:
+        directories: dict[str, Path] = {}
         if any(packs.iterdir()):
-            copy_tree(packs, packs_dest)
+            directories["addon-library/packs"] = packs
         else:
-            packs_dest.mkdir()
-        create_tar_zst(staging, dest, arcname="addon-library")
+            empty_packs = Path(
+                tempfile.mkdtemp(
+                    prefix="mf-addon-empty-",
+                    dir=str(addon_backups_dir(settings)),
+                )
+            )
+            directories["addon-library/packs"] = empty_packs
+        create_tar_zst_mixed(
+            dest,
+            inline_files={"addon-library/manifest.json": manifest_bytes},
+            directories=directories,
+        )
+    finally:
+        if empty_packs is not None:
+            shutil.rmtree(empty_packs, ignore_errors=True)
 
     members = verify_tar_zst(dest)
     digest = sha256_file(dest)

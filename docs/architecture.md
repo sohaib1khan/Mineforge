@@ -26,7 +26,8 @@ docker compose
 ## Phase 3
 
 - Global operation lock + job state machine (`services/operations.py`)
-- Live backup: `save hold` → `save query` → truncated copy → `save resume` → `.tar.zst` + sha256 verify
+- Live backup: `save hold` → poll `save query` until ready (comma-separated `path:size` list) → truncated copy → `save resume` → `.tar.zst` + sha256 verify
+- Add-on library backup: stream `/app-data/packs` + manifest directly into `.tar.zst` (no full `/tmp` staging copy)
 - Restore: pre-restore backup → stop → extract → atomic swap → start/health-check → auto swap-back on failure
 - Nightly backup + retention via APScheduler
 - SSE progress for operations; Backups UI + progress drawer

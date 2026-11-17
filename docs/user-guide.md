@@ -48,7 +48,7 @@
 
 - Any signed-in user can tap **Backup now** for the active world.
 - Live backups work while players are online.
-- Admins can **Restore**, **Download**, or **Delete** backups.
+- Admins can **Restore**, **Save to device**, or **Delete** backups (world and add-on library archives download to your browser).
 - Restore takes a safety backup first and rolls back automatically if startup fails.
 - Watch live progress in the operation drawer.
 

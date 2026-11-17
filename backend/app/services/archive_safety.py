@@ -7,6 +7,7 @@ import io
 import os
 import shutil
 import tarfile
+import time
 import zipfile
 from pathlib import Path
 
@@ -48,6 +49,47 @@ def create_tar_zst(source_dir: Path, dest: Path, *, arcname: str | None = None) 
             with tarfile.open(fileobj=compressor, mode="w|") as tar:
                 tar.add(str(source_dir), arcname=name)
     except OSError as exc:
+        if dest.exists():
+            dest.unlink(missing_ok=True)
+        raise AppError(f"Failed to create archive: {exc}") from exc
+    return dest.stat().st_size
+
+
+def create_tar_zst_mixed(
+    dest: Path,
+    *,
+    inline_files: dict[str, bytes],
+    directories: dict[str, Path],
+) -> int:
+    """Stream a `.tar.zst` from in-memory files and on-disk directories.
+
+    Avoids staging a full duplicate tree under ``/tmp``. ``inline_files`` maps
+    archive member paths to bytes; ``directories`` maps archive member paths to
+    source directories that are added recursively.
+
+    Raises:
+        AppError: if a source directory is missing or archive write fails.
+    """
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    partial = dest.with_name(dest.name + ".partial")
+    cctx = zstd.ZstdCompressor(level=3)
+    try:
+        with partial.open("wb") as out, cctx.stream_writer(out) as compressor:
+            with tarfile.open(fileobj=compressor, mode="w|") as tar:
+                for arcname, payload in inline_files.items():
+                    info = tarfile.TarInfo(name=arcname)
+                    info.size = len(payload)
+                    info.mtime = int(time.time())
+                    info.mode = 0o644
+                    tar.addfile(info, io.BytesIO(payload))
+                for arcname, source in directories.items():
+                    if not source.is_dir():
+                        raise AppError(f"Source directory not found: {source}")
+                    tar.add(str(source), arcname=arcname, recursive=True)
+        partial.replace(dest)
+    except OSError as exc:
+        partial.unlink(missing_ok=True)
         if dest.exists():
             dest.unlink(missing_ok=True)
         raise AppError(f"Failed to create archive: {exc}") from exc
