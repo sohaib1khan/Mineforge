@@ -37,12 +37,10 @@ STATUS_CACHE_SECONDS = 3.0
 HLS_ALLOWED_SUFFIXES = (".m3u8", ".ts", ".mp4", ".m4s", ".cmfv", ".cmfa")
 OBS_NOTES = [
     "OBS → Settings → Stream: Service must be Custom (not Twitch/YouTube).",
-    "Server = the RTMP URL below (rtmp://…:1935/live) — not your https:// website URL.",
-    "Stream Key = the OBS stream-key field below (?user=publish&pass=…). Paste that whole string.",
-    "Cloudflare: do NOT use an orange-cloud hostname for RTMP. Create a DNS-only (grey cloud) "
-    "A/AAAA record (e.g. rtmp.yourdomain) pointing at the server public IP, set "
-    "MINEFORGE_STREAM_RTMP_HOST to that name, and forward TCP 1935 to the host.",
-    "Forward TCP 1935 on the router/firewall. RTMP is not encrypted — use a strong key.",
+    "Server = rtmp://HOST:1935/live (not https://). Stream Key = ?user=publish&pass=… (whole string).",
+    "If OBS reconnect-loops with path live/: keep Server ending in /live and Stream Key starting with ?.",
+    "Cloudflare: do NOT use an orange-cloud hostname for RTMP. Use a DNS-only record or LAN IP.",
+    "Forward TCP 1935 on the router/firewall for remote OBS. RTMP is not encrypted — use a strong key.",
     "Output: 1280×720 or 1920×1080, 30 fps, CBR 2500–4500 kbps, keyframe interval 2 s.",
     "Encoder: NVENC / VAAPI / QSV if available, else x264 veryfast. Audio: AAC 128–160 kbps, 48 kHz.",
     "Capture the game window only — avoid leaking other windows, chat, or credentials.",
@@ -263,6 +261,7 @@ def authorize_publish(
     """
 
     action_l = (action or "").strip().lower()
+    # OBS often publishes as "live/" when Stream Key starts with "?".
     path_l = (path or "").strip().strip("/")
     stream_row = get_or_create_settings(session, settings)
 

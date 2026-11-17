@@ -49,4 +49,7 @@ pathDefaults:
   source: publisher
 
 paths:
+  # Exact path used by most clients.
   live:
+  # OBS Custom often appends a trailing slash when Stream Key starts with "?".
+  "live/":
