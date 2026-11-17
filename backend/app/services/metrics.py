@@ -20,7 +20,9 @@ from app.models.world import World
 from app.services.archive_safety import dir_size
 from app.services.backups import backups_dir
 from app.services.docker_client import get_docker_client
+from app.services.login_activity import login_activity_snapshot
 from app.services.players import list_online_players
+from app.services.world_insight import build_world_insight
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +289,24 @@ def dashboard_snapshot(
     latest = latest_sample(session)
     playtime = playtime_leaderboard(session, days=7, limit=5)
     disk = disk_summary(session, settings)
+    try:
+        insight = build_world_insight(session, settings)
+    except Exception:
+        logger.exception("World insight failed")
+        insight = {"available": False, "reason": "Insight scan failed"}
+    try:
+        logins = login_activity_snapshot(session, days=14, recent_limit=10)
+    except Exception:
+        logger.exception("Login activity failed")
+        logins = {
+            "recent": [],
+            "logins_by_day": [],
+            "users": [],
+            "login_count_window": 0,
+            "users_total": 0,
+            "users_active": 0,
+            "users_never_logged_in": 0,
+        }
     return {
         "latest": sample_to_dict(latest) if latest else None,
         "playtime_week": playtime,
@@ -296,4 +316,33 @@ def dashboard_snapshot(
             "backup_count": disk["backup_count"],
         },
         "players_online": len(list_online_players(session)),
+        "world_insight": insight,
+        "login_activity": logins,
     }
+
+
+def overview_extras(
+    session: Session,
+    settings: Settings,
+) -> dict[str, Any]:
+    """World insight + login activity for the Metrics overview page."""
+
+    try:
+        insight = build_world_insight(session, settings)
+    except Exception:
+        logger.exception("World insight failed")
+        insight = {"available": False, "reason": "Insight scan failed"}
+    try:
+        logins = login_activity_snapshot(session, days=14, recent_limit=20)
+    except Exception:
+        logger.exception("Login activity failed")
+        logins = {
+            "recent": [],
+            "logins_by_day": [],
+            "users": [],
+            "login_count_window": 0,
+            "users_total": 0,
+            "users_active": 0,
+            "users_never_logged_in": 0,
+        }
+    return {"world_insight": insight, "login_activity": logins}

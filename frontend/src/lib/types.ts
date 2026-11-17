@@ -290,6 +290,61 @@ export type MetricsBackupHistoryEntry = {
   created_at: string | null;
 };
 
+export type WorldInsightPackEntry = {
+  name: string;
+  kind: string;
+  pack_uuid: string;
+  folder: string;
+  category: string;
+  size_bytes: number;
+  counts: Record<string, number>;
+  weapon_like_items: number;
+  structure_files: number;
+};
+
+export type WorldInsightResponse = {
+  available: boolean;
+  reason: string | null;
+  world: {
+    id?: number | null;
+    display_name?: string;
+    folder_name?: string;
+    size_bytes?: number;
+    db_bytes?: number;
+    gamemode?: string | null;
+    difficulty?: string | null;
+    seed?: string | null;
+    last_played_at?: string | null;
+  } | null;
+  level: Record<string, unknown> | null;
+  packs: WorldInsightPackEntry[];
+  all_pack_names: string[];
+  totals: Record<string, number>;
+  categories: Record<string, number>;
+};
+
+export type LoginActivityResponse = {
+  recent: Array<{
+    ts: string;
+    user_id: number | null;
+    username: string;
+    ip: string | null;
+  }>;
+  logins_by_day: Array<{ day: string; logins: number }>;
+  users: Array<{
+    id: number | null;
+    username: string;
+    role: string;
+    is_active: boolean;
+    last_login_at: string | null;
+    created_at: string | null;
+  }>;
+  login_count_window: number;
+  users_total: number;
+  users_active: number;
+  users_never_logged_in: number;
+};
+
 export type MetricsOverviewResponse = {
   samples: MetricSample[];
   playtime: PlaytimeEntry[];
@@ -298,6 +353,8 @@ export type MetricsOverviewResponse = {
   backups: MetricsBackupHistoryEntry[];
   sample_interval_seconds: number;
   retention_days: number;
+  world_insight?: WorldInsightResponse | null;
+  login_activity?: LoginActivityResponse | null;
 };
 
 export type MetricsDashboardResponse = {
@@ -309,6 +366,8 @@ export type MetricsDashboardResponse = {
     backup_count?: number;
   };
   players_online: number;
+  world_insight?: WorldInsightResponse | null;
+  login_activity?: LoginActivityResponse | null;
 };
 
 export type NetworkChecklistItem = {

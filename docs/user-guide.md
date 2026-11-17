@@ -58,6 +58,12 @@
 - Recommended: 1280×720 or 1920×1080, 30 fps, CBR 2500–4500 kbps, keyframe interval **1 s**, AAC audio. Capture the **game window** only. Expect roughly **2–5 s** viewer delay (HLS), not true zero-latency.
 - Viewers use MineForge HLS proxy; MediaMTX HLS/API ports stay internal. RTMP publish is authenticated with the stream key (RTMP itself is not encrypted).
 
+## Dashboard metrics (world insight + logins)
+
+- **Home** and **Metrics** show a deep read-only scan of the **active** world: `level.dat` (seed, spawn, experiments), enabled packs, and pack content counts (items, entities, blocks, structures, recipes, weapon-like item files, categories such as weapons/builds/furniture/vehicles).
+- Packs are classified from names/paths; this is not Mojang Marketplace metadata and does not decode LevelDB inventories.
+- **Panel login activity** (recent logins, logins-per-day, user roster) comes from MineForge audit logs. IP addresses and the full user roster are admin-only.
+
 ## Backups
 
 - Any signed-in user can tap **Backup now** for the active world.

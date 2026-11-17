@@ -55,6 +55,38 @@ vi.mock("../../lib/api", async () => {
       playtime_week: [{ gamertag: "player_one", seconds: 3600, hours: 1 }],
       disk: { worlds_bytes: 1000, backups_bytes: 2000, backup_count: 1 },
       players_online: 0,
+      world_insight: {
+        available: true,
+        reason: null,
+        world: { display_name: "TestWorld", db_bytes: 100, size_bytes: 200 },
+        level: { seed: "42" },
+        packs: [],
+        all_pack_names: [],
+        totals: {
+          packs: 2,
+          items: 10,
+          entities: 3,
+          structures: 5,
+          weapon_like_items: 1,
+        },
+        categories: { weapons_combat: 1, structures_builds: 1 },
+      },
+      login_activity: {
+        recent: [
+          {
+            ts: "2026-01-01T00:00:00Z",
+            user_id: 1,
+            username: "admin_one",
+            ip: null,
+          },
+        ],
+        logins_by_day: [],
+        users: [],
+        login_count_window: 1,
+        users_total: 1,
+        users_active: 1,
+        users_never_logged_in: 0,
+      },
     })),
   };
 });

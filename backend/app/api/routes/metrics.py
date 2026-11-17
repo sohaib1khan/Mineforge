@@ -2,22 +2,39 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Query
 
 from app.api.deps import AuthDep, SessionDep, SettingsDep
+from app.models.user import UserRole
 from app.schemas.metrics import (
     BackupHistoryEntry,
     DiskSummaryResponse,
     JoinsDayEntry,
+    LoginActivityResponse,
     MetricSampleResponse,
     MetricsDashboardResponse,
     MetricsOverviewResponse,
     PlaytimeEntry,
     WorldDiskEntry,
+    WorldInsightResponse,
 )
 from app.services import metrics as metrics_service
 
 router = APIRouter(prefix="/api/metrics", tags=["metrics"])
+
+
+def _login_activity_for_viewer(
+    payload: dict[str, Any], *, is_admin: bool
+) -> LoginActivityResponse:
+    """Hide login IPs (and user roster detail) from non-admins."""
+
+    data = dict(payload)
+    if not is_admin:
+        data["recent"] = [{**row, "ip": None} for row in list(data.get("recent") or [])]
+        data["users"] = []
+    return LoginActivityResponse.model_validate(data)
 
 
 @router.get("/overview", response_model=MetricsOverviewResponse)
@@ -32,6 +49,8 @@ def metrics_overview(
 
     samples = metrics_service.list_samples(session, hours=hours)
     disk = metrics_service.disk_summary(session, settings)
+    extras = metrics_service.overview_extras(session, settings)
+    is_admin = _auth.user.role == UserRole.ADMIN
     return MetricsOverviewResponse(
         samples=[
             MetricSampleResponse.model_validate(metrics_service.sample_to_dict(s))
@@ -57,6 +76,10 @@ def metrics_overview(
         ],
         sample_interval_seconds=settings.metrics_sample_seconds,
         retention_days=settings.metrics_retention_days,
+        world_insight=WorldInsightResponse.model_validate(extras["world_insight"]),
+        login_activity=_login_activity_for_viewer(
+            extras["login_activity"], is_admin=is_admin
+        ),
     )
 
 
@@ -70,6 +93,7 @@ def metrics_dashboard(
 
     snap = metrics_service.dashboard_snapshot(session, settings)
     latest = snap["latest"]
+    is_admin = _auth.user.role == UserRole.ADMIN
     return MetricsDashboardResponse(
         latest=MetricSampleResponse.model_validate(latest) if latest else None,
         playtime_week=[
@@ -77,4 +101,8 @@ def metrics_dashboard(
         ],
         disk=snap["disk"],
         players_online=snap["players_online"],
+        world_insight=WorldInsightResponse.model_validate(snap["world_insight"]),
+        login_activity=_login_activity_for_viewer(
+            snap["login_activity"], is_admin=is_admin
+        ),
     )

@@ -401,8 +401,180 @@ export function MetricsPage() {
           </div>
         </div>
       ) : null}
+
+      {data?.world_insight?.available ? (
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <h2 className="font-pixel text-lg">Active world insight</h2>
+            <p className="text-sm text-muted">
+              Read-only scan of level.dat + enabled packs (items, entities, structures,
+              weapons-like content). Not a live inventory dump from LevelDB.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              label="Packs enabled"
+              value={String(data.world_insight.totals.packs ?? 0)}
+              hint={`${data.world_insight.totals.behavior_packs ?? 0} BP · ${data.world_insight.totals.resource_packs ?? 0} RP`}
+            />
+            <StatCard
+              label="Items / entities"
+              value={`${data.world_insight.totals.items ?? 0} / ${data.world_insight.totals.entities ?? 0}`}
+              hint={`${data.world_insight.totals.blocks ?? 0} blocks`}
+            />
+            <StatCard
+              label="Structures"
+              value={String(data.world_insight.totals.structures ?? 0)}
+              hint={`${data.world_insight.totals.weapon_like_items ?? 0} weapon-like items`}
+            />
+            <StatCard
+              label="World DB"
+              value={formatBytes(Number(data.world_insight.world?.db_bytes ?? 0))}
+              hint={
+                formatBytes(Number(data.world_insight.world?.size_bytes ?? 0)) +
+                " total"
+              }
+            />
+          </div>
+          {data.world_insight.level ? (
+            <div className="mf-card p-4 text-sm space-y-1">
+              <p>
+                <span className="text-muted">Seed </span>
+                <span className="font-mono">
+                  {String(data.world_insight.level.seed ?? "—")}
+                </span>
+              </p>
+              <p>
+                <span className="text-muted">Spawn </span>
+                {formatSpawn(data.world_insight.level.spawn)}
+              </p>
+              <p>
+                <span className="text-muted">Categories </span>
+                {Object.entries(data.world_insight.categories)
+                  .map(([k, v]) => `${k.replaceAll("_", " ")} ${v}`)
+                  .join(" · ") || "—"}
+              </p>
+            </div>
+          ) : null}
+          {data.world_insight.packs.length > 0 ? (
+            <div className="max-h-80 overflow-y-auto rounded-md border border-border">
+              <ul className="divide-y divide-border">
+                {data.world_insight.packs.map((p) => (
+                  <li
+                    key={`${p.pack_uuid}-${p.kind}`}
+                    className="px-4 py-3 text-sm space-y-1"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="truncate font-medium">{p.name}</span>
+                      <span className="text-xs text-muted">
+                        {p.category.replaceAll("_", " ")} · {p.kind}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted">
+                      items {p.counts.items ?? 0} · entities {p.counts.entities ?? 0} ·
+                      structures {p.structure_files} · weapons-like{" "}
+                      {p.weapon_like_items} · {formatBytes(p.size_bytes)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {data?.login_activity ? (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="space-y-3">
+            <h2 className="font-pixel text-lg">Panel logins</h2>
+            <p className="text-sm text-muted">
+              {data.login_activity.login_count_window} logins in window ·{" "}
+              {data.login_activity.users_active}/{data.login_activity.users_total} users
+              active
+            </p>
+            <div className="mf-card p-4">
+              <div className="h-[220px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={data.login_activity.logins_by_day}>
+                    <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="day"
+                      tick={{ fill: "var(--color-muted)", fontSize: 10 }}
+                      tickFormatter={(v: string) => v.slice(5)}
+                    />
+                    <YAxis
+                      allowDecimals={false}
+                      tick={{ fill: "var(--color-muted)", fontSize: 11 }}
+                      width={28}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: "var(--color-surface)",
+                        border: "1px solid var(--color-border)",
+                        color: "var(--color-text)",
+                      }}
+                    />
+                    <Bar dataKey="logins" fill="var(--color-accent)" name="Logins" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="max-h-56 overflow-y-auto rounded-md border border-border">
+              <ul className="divide-y divide-border">
+                {data.login_activity.recent.map((row) => (
+                  <li
+                    key={`${row.ts}-${row.username}`}
+                    className="flex justify-between gap-3 px-4 py-2 text-sm"
+                  >
+                    <span className="truncate">{row.username}</span>
+                    <span className="text-xs text-muted shrink-0">
+                      {formatWhen(row.ts)}
+                      {row.ip ? ` · ${row.ip}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          {data.login_activity.users.length > 0 ? (
+            <div className="space-y-3">
+              <h2 className="font-pixel text-lg">User login roster</h2>
+              <div className="max-h-96 overflow-y-auto rounded-md border border-border">
+                <ul className="divide-y divide-border">
+                  {data.login_activity.users.map((u) => (
+                    <li
+                      key={u.username}
+                      className="flex justify-between gap-3 px-4 py-3 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate">
+                          {u.username}{" "}
+                          <span className="text-xs text-muted">{u.role}</span>
+                        </p>
+                        <p className="text-xs text-muted">
+                          Last login: {formatWhen(u.last_login_at)}
+                        </p>
+                      </div>
+                      <span className="text-xs text-muted">
+                        {u.is_active ? "active" : "off"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
+}
+
+function formatSpawn(spawn: unknown): string {
+  if (!spawn || typeof spawn !== "object") return "—";
+  const s = spawn as { x?: unknown; y?: unknown; z?: unknown };
+  if (s.x == null || s.y == null || s.z == null) return "—";
+  return `${s.x}, ${s.y}, ${s.z}`;
 }
 
 function StatCard({

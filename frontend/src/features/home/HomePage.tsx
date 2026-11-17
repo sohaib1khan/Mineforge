@@ -174,6 +174,75 @@ export function HomePage() {
         </div>
       ) : null}
 
+      {metrics?.world_insight?.available ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg">World content</h2>
+            <Link
+              className="text-sm text-accent underline-offset-2 hover:underline"
+              to="/metrics"
+            >
+              Deep scan
+            </Link>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="mf-card p-4">
+              <p className="text-sm text-muted">Packs</p>
+              <p className="mt-1 font-pixel text-xl">
+                {metrics.world_insight.totals.packs ?? 0}
+              </p>
+              <p className="text-xs text-muted mt-1">
+                {(metrics.world_insight.categories.weapons_combat ?? 0) +
+                  (metrics.world_insight.categories.structures_builds ?? 0)}{" "}
+                weapons/builds packs
+              </p>
+            </div>
+            <div className="mf-card p-4">
+              <p className="text-sm text-muted">Items · entities</p>
+              <p className="mt-1 font-pixel text-xl">
+                {metrics.world_insight.totals.items ?? 0} ·{" "}
+                {metrics.world_insight.totals.entities ?? 0}
+              </p>
+              <p className="text-xs text-muted mt-1">
+                {metrics.world_insight.totals.structures ?? 0} structures ·{" "}
+                {metrics.world_insight.totals.weapon_like_items ?? 0} weapon-like
+              </p>
+            </div>
+            <div className="mf-card p-4">
+              <p className="text-sm text-muted">Seed</p>
+              <p className="mt-1 font-pixel text-sm truncate">
+                {String(metrics.world_insight.level?.seed ?? "—")}
+              </p>
+              <p className="text-xs text-muted mt-1">
+                DB {formatBytes(Number(metrics.world_insight.world?.db_bytes ?? 0))}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {metrics?.login_activity && metrics.login_activity.recent.length > 0 ? (
+        <div className="space-y-2">
+          <h2 className="text-lg">Recent panel logins</h2>
+          <ul className="text-sm text-muted space-y-1">
+            {metrics.login_activity.recent.slice(0, 5).map((row) => (
+              <li
+                key={`${row.ts}-${row.username}`}
+                className="flex justify-between gap-3"
+              >
+                <span className="truncate text-text">{row.username}</span>
+                <span className="shrink-0">
+                  {new Date(row.ts).toLocaleString([], {
+                    dateStyle: "short",
+                    timeStyle: "short",
+                  })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {status && status.players_online.length > 0 ? (
         <div>
           <h2 className="text-lg mb-2">Online now</h2>
