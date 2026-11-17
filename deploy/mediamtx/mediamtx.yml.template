@@ -31,11 +31,12 @@ rtmpEncryption: "no"
 hls: yes
 hlsAddress: :8888
 hlsEncryption: no
-hlsAlwaysRemux: no
-hlsVariant: lowLatency
+# Always remux so the first viewer does not wait for muxer warmup.
+hlsAlwaysRemux: yes
+# fmp4 (not lowLatency): LL-HLS blocking reloads + gap.mp4 break hls.js via our proxy.
+hlsVariant: fmp4
 hlsSegmentCount: 7
-hlsSegmentDuration: 1s
-hlsPartDuration: 200ms
+hlsSegmentDuration: 2s
 hlsSegmentMaxSize: 50M
 hlsMuxerCloseAfter: 60s
 hlsAllowOrigin: "*"

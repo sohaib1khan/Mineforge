@@ -9,7 +9,7 @@ docker compose
   │     └── DOCKER_HOST=tcp://socket-proxy:2375
   ├── socket-proxy (tecnativa/docker-socket-proxy)
   │     └── /var/run/docker.sock (locked-down)
-  ├── mediamtx (OBS RTMP ingest → LL-HLS; remux only)
+  ├── mediamtx (OBS RTMP ingest → fMP4 HLS; remux only)
   │     RTMP :1935 bound to LAN IP only; HLS/API internal
   └── bedrock (itzg) [profile: bedrock]
         TCP 19132 + UDP 19140–19155
@@ -80,5 +80,5 @@ docker compose
 
 - MediaMTX container: OBS publishes RTMP on `:1935` (public bind by default for remote OBS); HLS/API stay on the Docker network
 - Publish auth via `POST /internal/stream/auth` (shared secret + private source IP); stream key argon2-hashed
-- Viewers: logged-in session → `/api/stream/hls/*` httpx proxy → MediaMTX LL-HLS (`hls.js` / native Safari)
+- Viewers: logged-in session → `/api/stream/hls/*` httpx proxy → MediaMTX fMP4 HLS (`hls.js` / native Safari)
 - Stream page + nav LIVE badge + dashboard “Live now — Watch” card; OBS Custom uses `?user=publish&pass=…` stream-key field

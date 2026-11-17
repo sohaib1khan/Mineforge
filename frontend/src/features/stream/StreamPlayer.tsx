@@ -51,12 +51,18 @@ export function StreamPlayer({ live, hlsPath }: Props) {
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
+        lowLatencyMode: false,
         backBufferLength: 30,
+        xhrSetup: (xhr) => {
+          xhr.withCredentials = true;
+        },
       });
       hlsRef.current = hls;
       hls.loadSource(src);
       hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        void video.play().catch(() => undefined);
+      });
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (!data.fatal) return;
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
@@ -71,7 +77,6 @@ export function StreamPlayer({ live, hlsPath }: Props) {
         hls.destroy();
         hlsRef.current = null;
       });
-      void video.play().catch(() => undefined);
       return () => {
         hls.destroy();
         hlsRef.current = null;
