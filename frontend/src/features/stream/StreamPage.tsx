@@ -243,6 +243,11 @@ export function StreamPage() {
                             ? ` (host: ${settings.rtmp_host}:${settings.rtmp_port})`
                             : ""}
                         </p>
+                        <p className="text-xs text-danger">
+                          If this hostname is behind Cloudflare (orange cloud), OBS will
+                          fail to connect. Use a DNS-only hostname or the server&apos;s
+                          public IP for RTMP, and open TCP {settings.rtmp_port}.
+                        </p>
                       </div>
                       <div className="space-y-1">
                         <p className="text-muted">
