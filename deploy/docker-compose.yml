@@ -6,14 +6,20 @@
 name: mineforge
 
 services:
+  # tecnativa 0.3.0 writes generated haproxy.cfg next to the template under
+  # /usr/local/etc/haproxy — that path cannot be tmpfs'd (hides the template)
+  # and cannot be read_only. Trust boundary = env ACL + internal network only.
   socket-proxy:
     image: tecnativa/docker-socket-proxy:0.3.0
     environment:
       CONTAINERS: 1
       INFO: 1
+      VERSION: 1
       POST: 1
       LOGS: 1
       STATS: 1
+      EVENTS: 1
+      PING: 1
       BUILD: 0
       COMMIT: 0
       CONFIGS: 0
@@ -29,25 +35,16 @@ services:
       SYSTEM: 0
       TASKS: 0
       VOLUMES: 0
-      # Official flag is ALLOW_RESTARTS (plural).
       ALLOW_RESTARTS: 1
       ALLOW_START: 1
       ALLOW_STOP: 1
       # Avoid HAProxy bind failures on hosts without working IPv6.
       DISABLE_IPV6: "1"
     volumes:
-      # ACL is the trust boundary; sock must be writable for Docker API calls.
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - mineforge
     restart: unless-stopped
-    read_only: true
-    # HAProxy needs writable /tmp + /run under a read-only rootfs.
-    tmpfs:
-      - /tmp
-      - /run
-    cap_drop:
-      - ALL
     security_opt:
       - no-new-privileges:true
 

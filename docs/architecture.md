@@ -68,7 +68,7 @@ docker compose
 
 ## Phase 9
 
-- Compose hardening (read-only rootfs, cap drop, socket-proxy LOGS/STATS)
+- Compose hardening (app read-only + cap drop; socket-proxy allow-list + LOGS/STATS)
 - Session HMAC with `MINEFORGE_SECRET_KEY`; CSRF on logout; optional trusted proxy headers
 - pytest-cov gate ≥ 80% on `app/services`; restore drill + itzg migration + release docs
 - Optional multi-arch GHCR publish workflow / `deploy/publish.sh`

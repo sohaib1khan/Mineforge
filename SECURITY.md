@@ -21,7 +21,7 @@ We will acknowledge reports and coordinate a fix before any public disclosure.
 - Role checks enforced in API dependencies
 - Uploads: extension allowlist, size limits, safe archive extraction
 - Docker access only via a locked-down socket proxy (no direct `docker.sock` on the app)
-- App and socket-proxy containers: non-root / capability-dropped / read-only rootfs where possible
+- App container: non-root, capability-dropped, read-only rootfs. Socket-proxy: API allow-list on an internal network (not read-only — HAProxy must write its generated config)
 - No secrets, real IPs, domains, gamertags, or credentials in the repository
 
 ## Reverse proxy
