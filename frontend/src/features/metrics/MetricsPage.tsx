@@ -415,7 +415,7 @@ function StatCard({
   hint: string;
 }) {
   return (
-    <div className="rounded-md border border-border bg-surface/70 px-4 py-3 space-y-1">
+    <div className="mf-card px-4 py-3 space-y-1">
       <p className="text-xs text-muted">{label}</p>
       <p className="font-pixel text-xl text-primary">{value}</p>
       <p className="text-xs text-muted">{hint}</p>
@@ -425,7 +425,7 @@ function StatCard({
 
 function ChartCard({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-md border border-border bg-surface/70 p-4 space-y-3">
+    <div className="mf-card p-4 space-y-3">
       <h2 className="text-sm text-muted">{title}</h2>
       <div className="h-[220px] w-full">{children}</div>
     </div>

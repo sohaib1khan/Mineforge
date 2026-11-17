@@ -60,6 +60,7 @@
 ## Add-ons (admin manage; everyone can view)
 
 - Upload `.mcaddon` / `.mcpack` into the library.
+- Admins can **Backup library** / **Restore** under Add-ons to snapshot every pack plus per-world assignments.
 - Flags warn about missing BP/RP halves, Marketplace/encrypted packs, and Beta APIs.
 - Per-world tab: enable packs, **Save profile**, then **Apply** or **Test**.
 - Test mode auto-reverts after the configured minutes unless you tap **Keep test**.

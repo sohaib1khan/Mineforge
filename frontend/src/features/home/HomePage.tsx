@@ -35,20 +35,27 @@ export function HomePage() {
 
   return (
     <section className="space-y-6">
-      <div className="space-y-2">
-        <h1 className="font-pixel text-2xl text-text">Dashboard</h1>
+      <div className="space-y-2 page-enter">
+        <h1 className="font-pixel text-2xl text-primary mf-title-glow">Dashboard</h1>
         <p className="max-w-xl text-muted leading-relaxed">
           Welcome{user ? `, ${user.username}` : ""}. {APP_DISPLAY_NAME} server overview.
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-md border border-border bg-surface/80 p-4">
+      <div className="grid gap-4 sm:grid-cols-3 stagger-children">
+        <div className="mf-card p-4">
           <p className="text-sm text-muted">Status</p>
           {statusQuery.isLoading ? (
             <Skeleton className="mt-2 h-7 w-24" />
           ) : (
-            <p className="mt-1 font-pixel text-xl">
+            <p
+              className={`mt-1 font-pixel text-xl inline-flex items-center gap-2 ${
+                running ? "text-primary" : ""
+              }`}
+            >
+              {running ? (
+                <span className="mf-status-pulse h-2.5 w-2.5 rounded-full bg-primary" />
+              ) : null}
               {running
                 ? "Online"
                 : status?.container.exists
@@ -57,7 +64,7 @@ export function HomePage() {
             </p>
           )}
         </div>
-        <div className="rounded-md border border-border bg-surface/80 p-4">
+        <div className="mf-card p-4">
           <p className="text-sm text-muted">World</p>
           {statusQuery.isLoading ? (
             <Skeleton className="mt-2 h-7 w-32" />
@@ -67,7 +74,7 @@ export function HomePage() {
             </p>
           )}
         </div>
-        <div className="rounded-md border border-border bg-surface/80 p-4">
+        <div className="mf-card p-4">
           <p className="text-sm text-muted">Players</p>
           {statusQuery.isLoading ? (
             <Skeleton className="mt-2 h-7 w-16" />
@@ -82,8 +89,8 @@ export function HomePage() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-md border border-border bg-surface/80 p-4">
+      <div className="grid gap-4 sm:grid-cols-3 stagger-children">
+        <div className="mf-card p-4">
           <p className="text-sm text-muted">CPU</p>
           {metricsQuery.isLoading ? (
             <Skeleton className="mt-2 h-7 w-16" />
@@ -93,7 +100,7 @@ export function HomePage() {
             </p>
           )}
         </div>
-        <div className="rounded-md border border-border bg-surface/80 p-4">
+        <div className="mf-card p-4">
           <p className="text-sm text-muted">Memory</p>
           {metricsQuery.isLoading ? (
             <Skeleton className="mt-2 h-7 w-20" />
@@ -103,7 +110,7 @@ export function HomePage() {
             </p>
           )}
         </div>
-        <div className="rounded-md border border-border bg-surface/80 p-4">
+        <div className="mf-card p-4">
           <p className="text-sm text-muted">Disk</p>
           {metricsQuery.isLoading ? (
             <Skeleton className="mt-2 h-7 w-24" />

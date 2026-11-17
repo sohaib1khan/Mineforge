@@ -2,8 +2,6 @@
 
 A self-hosted panel for running a Minecraft Bedrock dedicated server. Start/stop the box, switch worlds without losing progress, take backups, manage allowlists and add-ons, watch the console, and keep an eye on resource use — from a phone or a desktop browser.
 
-Built by [Sohaib Khan](https://github.com/sohaib1khan/Mineforge).
-
 Not affiliated with Mojang or Microsoft.
 
 ## What you get
@@ -11,7 +9,7 @@ Not affiliated with Mojang or Microsoft.
 - Docker Compose deploy (app + locked-down Docker socket proxy; Bedrock optional)
 - First-run admin setup in the UI (no setup code)
 - World list + switch with pre-switch backup and countdown
-- Live backups / restore, pack library, ops & allowlist editors
+- Live world backups / restore, add-on library backup / restore, pack library, ops & allowlist editors
 - Metrics charts, NetherNet public-IP helper, in-app help guides
 - Dark/light theme, installable PWA
 

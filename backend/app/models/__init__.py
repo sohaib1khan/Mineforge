@@ -1,6 +1,7 @@
 """SQLModel table models."""
 
 from app.models.addon import Addon, AddonKind, WorldAddon
+from app.models.addon_backup import AddonLibraryBackup
 from app.models.audit import AuditLog
 from app.models.backup import Backup, BackupKind
 from app.models.metric_sample import MetricSample
@@ -14,6 +15,7 @@ from app.models.world import World
 __all__ = [
     "Addon",
     "AddonKind",
+    "AddonLibraryBackup",
     "AuditLog",
     "AuthSession",
     "Backup",

@@ -41,6 +41,7 @@ UI: http://localhost:18080 (`MINEFORGE_HOST_PORT`).
 ## Phase 5 notes
 
 - Pack library: `/app-data/packs`. Applied packs sync into `/data/behavior_packs` and `/data/resource_packs`.
+- Pack-library backups: `/app-data/addon-backups` (`.tar.zst` + manifest). Restore takes a safety backup first.
 - `MINEFORGE_ADDON_TEST_MINUTES` (default 10) controls test-mode auto-revert.
 - Apply/test take a pre-addon backup and roll pack JSON files back on failure.
 - Encrypted/Marketplace packs are flagged and skipped when writing pack stacks.

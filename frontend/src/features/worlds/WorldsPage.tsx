@@ -170,10 +170,7 @@ export function WorldsPage() {
       ) : (
         <ul className="grid gap-4 sm:grid-cols-2">
           {worlds.map((w) => (
-            <li
-              key={w.id}
-              className="rounded-md border border-border bg-surface/80 p-4 space-y-3"
-            >
+            <li key={w.id} className="mf-card p-4 space-y-3">
               <div className="space-y-1">
                 <div className="flex items-center justify-between gap-2">
                   <h2 className="font-pixel text-lg truncate">{w.display_name}</h2>

@@ -68,3 +68,27 @@ class PendingTestsResponse(BaseModel):
 
 class TexturepackRequiredRequest(BaseModel):
     required: bool
+
+
+class AddonLibraryBackupResponse(BaseModel):
+    id: int
+    path: str
+    size_bytes: int
+    sha256: str
+    verified: bool = False
+    pack_count: int = 0
+    note: str | None = None
+    created_at: str | None = None
+    created_by: int | None = None
+
+
+class AddonLibraryBackupListResponse(BaseModel):
+    backups: list[AddonLibraryBackupResponse]
+
+
+class AddonLibraryBackupCreateResponse(BaseModel):
+    operation: OperationResponse
+
+
+class AddonLibraryRestoreResponse(BaseModel):
+    operation: OperationResponse

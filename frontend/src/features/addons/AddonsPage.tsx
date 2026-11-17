@@ -7,11 +7,15 @@ import { SkeletonLines } from "../../components/ui/Skeleton";
 import { useToast } from "../../components/ui/Toast";
 import {
   applyWorldAddons,
+  createAddonLibraryBackup,
   deleteAddon,
+  deleteAddonLibraryBackup,
+  fetchAddonLibraryBackups,
   fetchAddons,
   fetchWorldProfile,
   fetchWorlds,
   keepAddonTest,
+  restoreAddonLibraryBackup,
   revertAddonTest,
   saveWorldProfile,
   setTexturepackRequired,
@@ -25,6 +29,18 @@ function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatWhen(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleString([], {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return iso;
+  }
 }
 
 function flagLabel(flag: string): string {
@@ -57,6 +73,11 @@ export function AddonsPage() {
     queryKey: ["addons"],
     queryFn: fetchAddons,
   });
+  const libraryBackupsQuery = useQuery({
+    queryKey: ["addon-library-backups"],
+    queryFn: fetchAddonLibraryBackups,
+    refetchInterval: operationId ? 3000 : 20_000,
+  });
   const worldsQuery = useQuery({
     queryKey: ["worlds"],
     queryFn: fetchWorlds,
@@ -69,6 +90,7 @@ export function AddonsPage() {
   });
 
   const addons = addonsQuery.data?.addons ?? [];
+  const libraryBackups = libraryBackupsQuery.data?.backups ?? [];
   const worlds = worldsQuery.data?.worlds ?? [];
 
   useEffect(() => {
@@ -90,6 +112,45 @@ export function AddonsPage() {
         toast.push("Pack uploaded.", "success");
       }
       void queryClient.invalidateQueries({ queryKey: ["addons"] });
+    },
+    onError: (err: Error) => {
+      setError(err.message);
+      toast.push(err.message, "error");
+    },
+  });
+
+  const backupLibraryMutation = useMutation({
+    mutationFn: createAddonLibraryBackup,
+    onSuccess: (data) => {
+      setError(null);
+      setOperationId(data.operation.id);
+      toast.push("Add-on library backup started.", "info");
+    },
+    onError: (err: Error) => {
+      setError(err.message);
+      toast.push(err.message, "error");
+    },
+  });
+
+  const restoreLibraryMutation = useMutation({
+    mutationFn: restoreAddonLibraryBackup,
+    onSuccess: (data) => {
+      setError(null);
+      setOperationId(data.operation.id);
+      toast.push("Add-on library restore started.", "info");
+    },
+    onError: (err: Error) => {
+      setError(err.message);
+      toast.push(err.message, "error");
+    },
+  });
+
+  const deleteLibraryBackupMutation = useMutation({
+    mutationFn: deleteAddonLibraryBackup,
+    onSuccess: () => {
+      setError(null);
+      toast.push("Add-on backup deleted.", "success");
+      void queryClient.invalidateQueries({ queryKey: ["addon-library-backups"] });
     },
     onError: (err: Error) => {
       setError(err.message);
@@ -167,11 +228,11 @@ export function AddonsPage() {
 
   return (
     <section className="space-y-6">
-      <div className="space-y-2">
-        <h1 className="font-pixel text-2xl text-text">Add-ons</h1>
+      <div className="space-y-2 page-enter">
+        <h1 className="font-pixel text-2xl text-primary mf-title-glow">Add-ons</h1>
         <p className="max-w-xl text-muted leading-relaxed">
           Upload packs, assign them per world, then Apply or Test (auto-reverts if you
-          do not keep the change).
+          do not keep the change). Admins can also backup and restore the whole library.
         </p>
       </div>
 
@@ -217,6 +278,13 @@ export function AddonsPage() {
                   e.target.value = "";
                 }}
               />
+              <Button
+                variant="secondary"
+                onClick={() => backupLibraryMutation.mutate()}
+                disabled={backupLibraryMutation.isPending}
+              >
+                Backup library
+              </Button>
               <Button
                 variant="secondary"
                 onClick={() =>
@@ -304,6 +372,79 @@ export function AddonsPage() {
               </p>
             </div>
           )}
+
+          <div className="space-y-3 pt-2">
+            <h2 className="font-pixel text-lg text-text">Library backups</h2>
+            <p className="text-sm text-muted">
+              Saves every pack plus per-world assignments. Restore replaces the current
+              library (a safety backup is taken first).
+            </p>
+            {libraryBackupsQuery.isLoading ? (
+              <SkeletonLines count={3} />
+            ) : libraryBackups.length === 0 ? (
+              <p className="text-sm text-muted">No library backups yet.</p>
+            ) : (
+              <div className="max-h-72 overflow-y-auto rounded-md border border-border">
+                <ul className="divide-y divide-border">
+                  {libraryBackups.map((b) => (
+                    <li
+                      key={b.id}
+                      className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between mf-card"
+                    >
+                      <div className="min-w-0 space-y-1">
+                        <p className="font-medium truncate">
+                          Backup #{b.id}
+                          {b.note ? (
+                            <span className="text-muted font-normal"> · {b.note}</span>
+                          ) : null}
+                        </p>
+                        <p className="text-xs text-muted">
+                          {b.pack_count} packs · {formatBytes(b.size_bytes)}
+                          {b.verified ? " · verified" : ""} · {formatWhen(b.created_at)}
+                        </p>
+                      </div>
+                      {isAdmin ? (
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            variant="secondary"
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  `Restore add-on library from backup #${b.id}? Current packs will be replaced after a safety backup.`,
+                                )
+                              ) {
+                                restoreLibraryMutation.mutate(b.id);
+                              }
+                            }}
+                            disabled={restoreLibraryMutation.isPending}
+                          >
+                            Restore
+                          </Button>
+                          <a
+                            className="inline-flex min-h-11 items-center justify-center rounded-md border border-border bg-surface px-4 py-2 text-sm hover:bg-border/40 mf-pressable"
+                            href={`/api/addons/library-backups/${b.id}/download`}
+                          >
+                            Download
+                          </a>
+                          <Button
+                            variant="danger"
+                            onClick={() => {
+                              if (window.confirm(`Delete add-on backup #${b.id}?`)) {
+                                deleteLibraryBackupMutation.mutate(b.id);
+                              }
+                            }}
+                            disabled={deleteLibraryBackupMutation.isPending}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         <div className="space-y-4">
@@ -418,7 +559,21 @@ export function AddonsPage() {
         </div>
       )}
 
-      <OperationDrawer operationId={operationId} onClose={() => setOperationId(null)} />
+      <OperationDrawer
+        operationId={operationId}
+        onClose={() => setOperationId(null)}
+        onFinished={() => {
+          void queryClient.invalidateQueries({ queryKey: ["addons"] });
+          void queryClient.invalidateQueries({
+            queryKey: ["addon-library-backups"],
+          });
+          if (worldId != null) {
+            void queryClient.invalidateQueries({
+              queryKey: ["addon-profile", worldId],
+            });
+          }
+        }}
+      />
     </section>
   );
 }

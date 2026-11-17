@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, File, Request, UploadFile
+from fastapi.responses import FileResponse
 
 from app.api.deps import (
     AdminCsrfDep,
@@ -16,10 +17,14 @@ from app.api.deps import (
     SettingsDep,
     get_client_ip,
 )
-from app.core.errors import AppError
+from app.core.errors import AppError, ForbiddenError
 from app.schemas.addons import (
     AddonApplyRequest,
     AddonApplyResponse,
+    AddonLibraryBackupCreateResponse,
+    AddonLibraryBackupListResponse,
+    AddonLibraryBackupResponse,
+    AddonLibraryRestoreResponse,
     AddonListResponse,
     AddonResponse,
     AddonUploadResponse,
@@ -30,6 +35,7 @@ from app.schemas.addons import (
     WorldProfileUpdateRequest,
 )
 from app.schemas.operations import MessageResponse, OperationResponse
+from app.services import addon_backups as addon_backup_service
 from app.services import addons as addon_service
 
 router = APIRouter(prefix="/api/addons", tags=["addons"])
@@ -52,6 +58,104 @@ def list_addons(
 @router.get("/pending-tests", response_model=PendingTestsResponse)
 def pending_tests(_admin: AdminDep) -> PendingTestsResponse:
     return PendingTestsResponse(pending=addon_service.list_pending_tests())
+
+
+@router.get("/library-backups", response_model=AddonLibraryBackupListResponse)
+def list_library_backups(
+    session: SessionDep, _auth: AuthDep
+) -> AddonLibraryBackupListResponse:
+    items = addon_backup_service.list_addon_backups(session)
+    return AddonLibraryBackupListResponse(
+        backups=[
+            AddonLibraryBackupResponse.model_validate(
+                addon_backup_service.backup_to_dict(b)
+            )
+            for b in items
+        ]
+    )
+
+
+@router.post("/library-backups", response_model=AddonLibraryBackupCreateResponse)
+def create_library_backup(
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    auth: AdminCsrfDep,
+) -> AddonLibraryBackupCreateResponse:
+    """Backup the pack library and world assignment manifest (admin)."""
+
+    operation = addon_backup_service.start_addon_library_backup(
+        session,
+        settings,
+        user_id=auth.user.id,  # type: ignore[arg-type]
+        role=auth.user.role,
+        ip=get_client_ip(request),
+    )
+    return AddonLibraryBackupCreateResponse(
+        operation=OperationResponse.model_validate(operation)
+    )
+
+
+@router.post(
+    "/library-backups/{backup_id}/restore",
+    response_model=AddonLibraryRestoreResponse,
+)
+def restore_library_backup(
+    backup_id: int,
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    auth: AdminCsrfDep,
+) -> AddonLibraryRestoreResponse:
+    """Restore pack library from a backup (admin). Takes a safety backup first."""
+
+    operation = addon_backup_service.start_addon_library_restore(
+        session,
+        settings,
+        backup_id=backup_id,
+        user_id=auth.user.id,  # type: ignore[arg-type]
+        role=auth.user.role,
+        ip=get_client_ip(request),
+    )
+    return AddonLibraryRestoreResponse(
+        operation=OperationResponse.model_validate(operation)
+    )
+
+
+@router.get("/library-backups/{backup_id}/download")
+def download_library_backup(
+    backup_id: int,
+    session: SessionDep,
+    settings: SettingsDep,
+    auth: AuthDep,
+) -> FileResponse:
+    if auth.user.role.value != "admin":
+        raise ForbiddenError("Admin access required")
+    path = addon_backup_service.resolve_backup_file(session, settings, backup_id)
+    return FileResponse(
+        path,
+        filename=path.name,
+        media_type="application/zstd",
+    )
+
+
+@router.delete("/library-backups/{backup_id}", response_model=MessageResponse)
+def delete_library_backup(
+    backup_id: int,
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    auth: AdminCsrfDep,
+) -> MessageResponse:
+    addon_backup_service.delete_addon_backup(
+        session,
+        settings,
+        backup_id=backup_id,
+        user_id=auth.user.id,  # type: ignore[arg-type]
+        role=auth.user.role,
+        ip=get_client_ip(request),
+    )
+    return MessageResponse(detail="Deleted")
 
 
 @router.post("/upload", response_model=AddonUploadResponse)

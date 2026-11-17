@@ -30,7 +30,7 @@ const NAV: NavItem[] = [
 const desktopLinkClass = ({ isActive }: { isActive: boolean }) =>
   `min-h-11 w-full inline-flex items-center rounded-md px-3 text-sm transition-colors duration-[var(--motion-fast)] ${
     isActive
-      ? "bg-primary/15 text-primary"
+      ? "mf-nav-active bg-primary/15 text-primary"
       : "text-muted hover:bg-border/40 hover:text-text"
   }`;
 

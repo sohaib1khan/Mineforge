@@ -1,5 +1,8 @@
 import type {
   AddonApplyResponse,
+  AddonLibraryBackupCreateResponse,
+  AddonLibraryBackupListResponse,
+  AddonLibraryRestoreResponse,
   AddonListResponse,
   AddonUploadResponse,
   AllowlistResponse,
@@ -489,6 +492,38 @@ export async function approveSwitchRequest(
 
 export async function fetchAddons(): Promise<AddonListResponse> {
   return request<AddonListResponse>("/api/addons");
+}
+
+export async function fetchAddonLibraryBackups(): Promise<AddonLibraryBackupListResponse> {
+  return request<AddonLibraryBackupListResponse>("/api/addons/library-backups");
+}
+
+export async function createAddonLibraryBackup(): Promise<AddonLibraryBackupCreateResponse> {
+  return request<AddonLibraryBackupCreateResponse>(
+    "/api/addons/library-backups",
+    { method: "POST" },
+    { csrf: true },
+  );
+}
+
+export async function restoreAddonLibraryBackup(
+  backupId: number,
+): Promise<AddonLibraryRestoreResponse> {
+  return request<AddonLibraryRestoreResponse>(
+    `/api/addons/library-backups/${backupId}/restore`,
+    { method: "POST" },
+    { csrf: true },
+  );
+}
+
+export async function deleteAddonLibraryBackup(
+  backupId: number,
+): Promise<MessageResponse> {
+  return request<MessageResponse>(
+    `/api/addons/library-backups/${backupId}`,
+    { method: "DELETE" },
+    { csrf: true },
+  );
 }
 
 export async function uploadAddon(file: File): Promise<AddonUploadResponse> {

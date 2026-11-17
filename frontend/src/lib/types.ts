@@ -219,6 +219,30 @@ export type AddonApplyResponse = {
   operation: OperationResponse;
 };
 
+export type AddonLibraryBackupResponse = {
+  id: number;
+  path: string;
+  size_bytes: number;
+  sha256: string;
+  verified: boolean;
+  pack_count: number;
+  note: string | null;
+  created_at: string | null;
+  created_by: number | null;
+};
+
+export type AddonLibraryBackupListResponse = {
+  backups: AddonLibraryBackupResponse[];
+};
+
+export type AddonLibraryBackupCreateResponse = {
+  operation: OperationResponse;
+};
+
+export type AddonLibraryRestoreResponse = {
+  operation: OperationResponse;
+};
+
 export type MetricSample = {
   id: number;
   ts: string;

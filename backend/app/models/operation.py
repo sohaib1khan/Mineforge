@@ -16,6 +16,8 @@ class OperationType(StrEnum):
     RESTORE = "restore"
     ADDON_APPLY = "addon_apply"
     ADDON_TEST = "addon_test"
+    ADDON_BACKUP = "addon_backup"
+    ADDON_RESTORE = "addon_restore"
 
 
 class OperationStatus(StrEnum):
