@@ -1,0 +1,21 @@
+# One-shot test runners (no long-lived services).
+# Invoked by: ./deploy/mf docker test
+
+name: mineforge-test
+
+services:
+  backend-test:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: backend-test
+    # Intentionally no MINEFORGE_* env — unit tests assert code defaults;
+    # integration fixtures set env themselves via monkeypatch.
+    command: ["pytest", "-q", "--cov=app/services", "--cov-report=term-missing", "--cov-fail-under=80"]
+
+  frontend-test:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: frontend-test
+    command: ["npm", "run", "test"]

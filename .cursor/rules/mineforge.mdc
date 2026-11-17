@@ -1,0 +1,34 @@
+---
+description: MineForge build rules — phases, structure, secrets
+alwaysApply: true
+---
+
+# MineForge Cursor rules
+
+## Build discipline
+
+1. Build **phase by phase** (blueprint Section 17). Finish a phase, meet its acceptance criteria, then stop and summarize before starting the next. Never skip ahead or half-build future phases.
+2. Keep the project clean. Follow the folder layout in blueprint Section 5. One responsibility per module. No god-files. No dead code, no commented-out blocks, no leftover debug prints.
+3. Business logic lives in `services/`, never in route handlers or React components. Routes validate input, call a service, return a response.
+4. Typed everywhere: Python type hints + Pydantic schemas; TypeScript `strict: true`. No `any`.
+5. Small, readable functions. Clear names. Docstrings on every service function explaining what it does and what can fail.
+6. Tests ship with features. Every service gets unit tests; risky flows get integration tests with rollback cases.
+7. Never hardcode secrets, IPs, gamertags, domains, or passwords. Config from environment variables. Never write real values into code, tests, docs, or fixtures.
+8. Never commit anything listed under Data safety below. Check `git status` before every commit.
+9. No `shell=True`, no string-built shell commands. Use library APIs (Docker SDK, `zipfile`, `tarfile`, `pathlib`).
+10. Ask before changing a locked decision in blueprint Section 2.
+11. Keep `README.md` and `docs/` updated at the end of each phase.
+
+## Data safety (non-negotiable)
+
+Never commit:
+
+- `.env` / real secrets, IPs, domains, gamertags, xuids, passwords, tokens
+- `*.db`, `*.sqlite*`, `/data/`, `/app-data/`, `/backups/`
+- `*.tar.zst`, `*.tgz`, `*.mcworld`, `*.mcaddon`, `*.mcpack`
+- `server.properties`, `allowlist.json`, `permissions.json`, `bedrock_server*`
+- Minecraft server binaries, worlds, or add-ons
+
+Commit only `.env.example` with placeholders (`CHANGE_ME`, `example.com`, `203.0.113.10`).
+Test fixtures use obviously fake data (`player_one`, `TestWorld`).
+If a secret is ever committed: rotate first, then purge history.

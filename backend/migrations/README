@@ -1,0 +1,8 @@
+Alembic migrations for MineForge.
+
+```bash
+cd backend
+alembic upgrade head
+```
+
+Development/bootstrap also calls `init_db()` on startup so empty installs create tables even before a migration run. Prefer `alembic upgrade head` in production.

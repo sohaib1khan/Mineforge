@@ -1,0 +1,49 @@
+# Secrets & local env
+.env
+.env.*
+!**/.env.example
+deploy/.env
+
+# Runtime / Minecraft data (never commit)
+*.db
+*.sqlite*
+/data/
+/app-data/
+/backups/
+deploy/data/
+deploy/app-data/
+*.tar.zst
+*.tgz
+*.mcworld
+*.mcaddon
+*.mcpack
+server.properties
+allowlist.json
+permissions.json
+bedrock_server*
+*.log
+
+# Dependencies & build
+node_modules/
+dist/
+__pycache__/
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage/
+*.tsbuildinfo
+
+# Tooling / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Frontend Vite
+frontend/dist/
+frontend/dev-dist/

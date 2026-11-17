@@ -1,0 +1,1031 @@
+"""Add-on library: upload, parse, pair, per-world profiles, apply, test/revert.
+
+Pack files live under `/app-data/packs/<sha256>/`. Applied copies are synced into
+`/data/behavior_packs` or `/data/resource_packs`. World pack JSON files merge
+enabled library packs with world-embedded packs so imports are never wiped.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import shutil
+import tempfile
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from sqlmodel import Session, col, select
+
+from app.core.config import Settings
+from app.core.errors import AppError, ForbiddenError, NotFoundError
+from app.db.session import get_engine
+from app.models.addon import Addon, AddonKind, WorldAddon
+from app.models.backup import BackupKind
+from app.models.operation import OperationType
+from app.models.user import UserRole
+from app.models.world import World
+from app.services import console as console_service
+from app.services import operations as ops
+from app.services import server_props
+from app.services import worlds as worlds_service
+from app.services.archive_safety import (
+    dir_size,
+    extract_zip_safe,
+    sha256_file,
+)
+from app.services.audit import record_audit
+from app.services.docker_client import get_docker_client
+from app.services.paths import resolve_under
+
+logger = logging.getLogger(__name__)
+
+UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+_pending_tests: dict[int, PendingTest] = {}
+_pending_lock = threading.Lock()
+_apply_fail_hook: Callable[[], None] | None = None
+
+
+@dataclass
+class PendingTest:
+    operation_id: int
+    world_id: int
+    world_folder: str
+    snapshot_bp: str
+    snapshot_rp: str
+    expires_at: datetime
+    timer: threading.Timer
+
+
+@dataclass
+class ParsedPack:
+    name: str
+    pack_uuid: str
+    version: str
+    version_list: list[int]
+    kind: AddonKind
+    encrypted: bool
+    needs_beta_apis: bool
+    dependencies: list[str]
+    root: Path
+
+
+def set_apply_fail_hook(hook: Callable[[], None] | None) -> None:
+    """Inject failure after pack JSON write during apply (tests)."""
+
+    global _apply_fail_hook
+    _apply_fail_hook = hook
+
+
+def reset_pending_tests_for_tests() -> None:
+    with _pending_lock:
+        for pending in list(_pending_tests.values()):
+            pending.timer.cancel()
+        _pending_tests.clear()
+
+
+def packs_library_dir(settings: Settings) -> Path:
+    path = resolve_under(settings.app_data_dir, "packs")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def behavior_packs_dir(settings: Settings) -> Path:
+    path = resolve_under(settings.data_dir, "behavior_packs")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def resource_packs_dir(settings: Settings) -> Path:
+    path = resolve_under(settings.data_dir, "resource_packs")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def list_addons(session: Session) -> list[Addon]:
+    return list(
+        session.exec(select(Addon).order_by(col(Addon.created_at).desc())).all()
+    )
+
+
+def get_addon(session: Session, addon_id: int) -> Addon:
+    addon = session.get(Addon, addon_id)
+    if addon is None:
+        raise NotFoundError("Add-on not found")
+    return addon
+
+
+def addon_to_dict(session: Session, addon: Addon) -> dict[str, Any]:
+    used_by = list(
+        session.exec(select(WorldAddon).where(WorldAddon.addon_id == addon.id)).all()
+    )
+    pair_name = None
+    if addon.pair_addon_id:
+        pair = session.get(Addon, addon.pair_addon_id)
+        if pair:
+            pair_name = pair.name
+    flags: list[str] = []
+    if addon.missing_pair:
+        flags.append("missing_pair")
+    if addon.encrypted:
+        flags.append("encrypted")
+    if addon.needs_beta_apis:
+        flags.append("needs_beta_apis")
+    return {
+        "id": addon.id,
+        "name": addon.name,
+        "pack_uuid": addon.pack_uuid,
+        "version": addon.version,
+        "kind": addon.kind.value if isinstance(addon.kind, AddonKind) else addon.kind,
+        "pair_addon_id": addon.pair_addon_id,
+        "pair_name": pair_name,
+        "source_filename": addon.source_filename,
+        "sha256": addon.sha256,
+        "size_bytes": addon.size_bytes,
+        "missing_pair": addon.missing_pair,
+        "encrypted": addon.encrypted,
+        "needs_beta_apis": addon.needs_beta_apis,
+        "flags": flags,
+        "uploaded_by": addon.uploaded_by,
+        "created_at": addon.created_at.isoformat() if addon.created_at else None,
+        "notes": addon.notes,
+        "used_by_world_ids": [wa.world_id for wa in used_by],
+    }
+
+
+def upload_addon(
+    session: Session,
+    settings: Settings,
+    *,
+    upload_path: Path,
+    original_filename: str,
+    user_id: int,
+    role: UserRole,
+    ip: str | None,
+) -> list[Addon]:
+    """Parse and store packs from a `.mcaddon` / `.mcpack` / `.zip` upload.
+
+    Raises:
+        ForbiddenError: non-admin.
+        AppError: bad archive or missing manifests.
+    """
+
+    if role != UserRole.ADMIN:
+        raise ForbiddenError("Admin access required")
+    suffix = upload_path.suffix.lower()
+    if suffix not in {".mcaddon", ".mcpack", ".zip"}:
+        raise AppError("Only .mcaddon, .mcpack, or .zip uploads are supported")
+
+    digest = sha256_file(upload_path)
+    staging = Path(tempfile.mkdtemp(prefix="mf-addon-", dir=str(settings.app_data_dir)))
+    created: list[Addon] = []
+    try:
+        extract_zip_safe(upload_path, staging)
+        pack_roots = _discover_pack_roots(staging)
+        if not pack_roots:
+            # Single .mcpack often extracts with manifest at top level
+            if (staging / "manifest.json").is_file():
+                pack_roots = [staging]
+            else:
+                raise AppError("No pack manifests found in upload")
+
+        for root in pack_roots:
+            parsed = parse_manifest(root)
+            storage_rel = f"{digest}/{parsed.pack_uuid}"
+            storage = packs_library_dir(settings) / storage_rel
+            if storage.exists():
+                shutil.rmtree(storage)
+            storage.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(root, storage, symlinks=False)
+
+            # Deduplicate by uuid+version+kind
+            existing = session.exec(
+                select(Addon).where(
+                    Addon.pack_uuid == parsed.pack_uuid,
+                    Addon.version == parsed.version,
+                    Addon.kind == parsed.kind,
+                )
+            ).first()
+            if existing:
+                existing.storage_path = storage_rel
+                existing.size_bytes = dir_size(storage)
+                existing.encrypted = parsed.encrypted
+                existing.needs_beta_apis = parsed.needs_beta_apis
+                existing.source_filename = original_filename
+                session.add(existing)
+                created.append(existing)
+                continue
+
+            addon = Addon(
+                name=parsed.name,
+                pack_uuid=parsed.pack_uuid,
+                version=parsed.version,
+                kind=parsed.kind,
+                source_filename=original_filename,
+                sha256=digest,
+                size_bytes=dir_size(storage),
+                missing_pair=False,
+                encrypted=parsed.encrypted,
+                needs_beta_apis=parsed.needs_beta_apis,
+                uploaded_by=user_id,
+                storage_path=storage_rel,
+            )
+            session.add(addon)
+            session.flush()
+            created.append(addon)
+
+        session.commit()
+        for addon in created:
+            session.refresh(addon)
+        _refresh_pairing(session)
+        session.commit()
+        for addon in created:
+            session.refresh(addon)
+
+        record_audit(
+            session,
+            action="addon.upload",
+            user_id=user_id,
+            target=original_filename,
+            details={"addon_ids": [a.id for a in created]},
+            ip=ip,
+        )
+        session.commit()
+        return created
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def delete_addon(
+    session: Session,
+    settings: Settings,
+    *,
+    addon_id: int,
+    user_id: int,
+    role: UserRole,
+    ip: str | None,
+) -> None:
+    if role != UserRole.ADMIN:
+        raise ForbiddenError("Admin access required")
+    addon = get_addon(session, addon_id)
+    links = list(
+        session.exec(select(WorldAddon).where(WorldAddon.addon_id == addon_id)).all()
+    )
+    for link in links:
+        session.delete(link)
+    # Clear reverse pairs
+    for other in session.exec(
+        select(Addon).where(Addon.pair_addon_id == addon_id)
+    ).all():
+        other.pair_addon_id = None
+        other.missing_pair = True
+        session.add(other)
+    storage = packs_library_dir(settings) / addon.storage_path
+    session.delete(addon)
+    record_audit(
+        session, action="addon.delete", user_id=user_id, target=str(addon_id), ip=ip
+    )
+    session.commit()
+    if storage.is_dir():
+        shutil.rmtree(storage, ignore_errors=True)
+    _refresh_pairing(session)
+    session.commit()
+
+
+def get_world_profile(session: Session, world_id: int) -> list[dict[str, Any]]:
+    world = session.get(World, world_id)
+    if world is None:
+        raise NotFoundError("World not found")
+    rows = list(
+        session.exec(
+            select(WorldAddon)
+            .where(WorldAddon.world_id == world_id)
+            .order_by(WorldAddon.load_order, WorldAddon.id)
+        ).all()
+    )
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        addon = get_addon(session, row.addon_id)
+        result.append(
+            {
+                "world_addon_id": row.id,
+                "addon_id": addon.id,
+                "enabled": row.enabled,
+                "load_order": row.load_order,
+                "addon": addon_to_dict(session, addon),
+            }
+        )
+    return result
+
+
+def set_world_profile(
+    session: Session,
+    *,
+    world_id: int,
+    entries: list[dict[str, Any]],
+    user_id: int,
+    role: UserRole,
+    ip: str | None,
+) -> list[dict[str, Any]]:
+    """Replace a world's enabled add-on profile (does not apply to disk yet)."""
+
+    if role != UserRole.ADMIN:
+        raise ForbiddenError("Admin access required")
+    world = session.get(World, world_id)
+    if world is None:
+        raise NotFoundError("World not found")
+
+    existing = list(
+        session.exec(select(WorldAddon).where(WorldAddon.world_id == world_id)).all()
+    )
+    for row in existing:
+        session.delete(row)
+    session.flush()
+
+    for idx, entry in enumerate(entries):
+        addon_id = int(entry["addon_id"])
+        get_addon(session, addon_id)
+        session.add(
+            WorldAddon(
+                world_id=world_id,
+                addon_id=addon_id,
+                enabled=bool(entry.get("enabled", True)),
+                load_order=int(entry.get("load_order", idx)),
+            )
+        )
+    record_audit(
+        session,
+        action="addon.profile_set",
+        user_id=user_id,
+        target=str(world_id),
+        details={"count": len(entries)},
+        ip=ip,
+    )
+    session.commit()
+    return get_world_profile(session, world_id)
+
+
+def world_download_size(
+    session: Session, settings: Settings, world_id: int
+) -> dict[str, int]:
+    """Sum sizes of enabled profile packs (+ rough embedded pack dirs)."""
+
+    world = session.get(World, world_id)
+    if world is None:
+        raise NotFoundError("World not found")
+    total = 0
+    count = 0
+    for row in session.exec(
+        select(WorldAddon).where(
+            WorldAddon.world_id == world_id, WorldAddon.enabled.is_(True)  # type: ignore[union-attr]
+        )
+    ).all():
+        addon = get_addon(session, row.addon_id)
+        total += addon.size_bytes
+        count += 1
+    path = worlds_service.world_path(settings, world.folder_name)
+    for sub in ("behavior_packs", "resource_packs"):
+        embedded = path / sub
+        if embedded.is_dir():
+            total += dir_size(embedded)
+    return {"enabled_pack_bytes": total, "enabled_pack_count": count}
+
+
+def start_apply(
+    session: Session,
+    settings: Settings,
+    *,
+    world_id: int,
+    user_id: int,
+    role: UserRole,
+    ip: str | None,
+    test_mode: bool = False,
+) -> dict[str, Any]:
+    """Apply the world's enabled profile (or test with auto-revert)."""
+
+    if role != UserRole.ADMIN:
+        raise ForbiddenError("Admin access required")
+    world = session.get(World, world_id)
+    if world is None:
+        raise NotFoundError("World not found")
+
+    op_type = OperationType.ADDON_TEST if test_mode else OperationType.ADDON_APPLY
+    op = ops.create_operation(
+        session,
+        op_type=op_type,
+        params={
+            "world_id": world_id,
+            "world_folder": world.folder_name,
+            "test_mode": test_mode,
+        },
+        started_by=user_id,
+    )
+    record_audit(
+        session,
+        action="addon.apply_start" if not test_mode else "addon.test_start",
+        user_id=user_id,
+        target=world.folder_name,
+        details={"operation_id": op.id, "test_mode": test_mode},
+        ip=ip,
+    )
+    session.commit()
+    operation_id = op.id
+    assert operation_id is not None
+    folder = world.folder_name
+    wid = world_id
+
+    def work(worker_session: Session, oid: int) -> None:
+        _run_apply(
+            worker_session,
+            settings,
+            operation_id=oid,
+            world_id=wid,
+            world_folder=folder,
+            test_mode=test_mode,
+            started_by=user_id,
+        )
+
+    ops.run_in_background(operation_id, work)
+    return ops.operation_to_dict(ops.get_operation(session, operation_id))
+
+
+def keep_test(
+    session: Session, settings: Settings, *, world_id: int, user_id: int
+) -> None:
+    """Confirm a test apply — cancel auto-revert."""
+
+    with _pending_lock:
+        pending = _pending_tests.pop(world_id, None)
+    if pending is None:
+        raise AppError("No pending add-on test for this world")
+    pending.timer.cancel()
+    record_audit(
+        session,
+        action="addon.test_keep",
+        user_id=user_id,
+        target=str(world_id),
+        details={"operation_id": pending.operation_id},
+    )
+    session.commit()
+    ops.append_log(
+        session, pending.operation_id, "Test keep confirmed — auto-revert cancelled"
+    )
+
+
+def revert_test_now(
+    session: Session, settings: Settings, *, world_id: int, user_id: int | None
+) -> None:
+    """Immediately revert a pending test (or call from timer)."""
+
+    with _pending_lock:
+        pending = _pending_tests.pop(world_id, None)
+    if pending is None:
+        raise AppError("No pending add-on test for this world")
+    pending.timer.cancel()
+    _restore_pack_jsons(
+        settings, pending.world_folder, pending.snapshot_bp, pending.snapshot_rp
+    )
+    docker = get_docker_client(settings)
+    was_running = docker.status().running
+    if was_running:
+        try:
+            console_service.send_command(settings, "stop", actor="addon-revert")
+            time.sleep(1)
+        except Exception:
+            pass
+        docker.stop(timeout=30)
+        docker.start()
+    record_audit(
+        session,
+        action="addon.test_revert",
+        user_id=user_id,
+        target=str(world_id),
+        details={"operation_id": pending.operation_id},
+    )
+    session.commit()
+    with Session(get_engine()) as live:
+        ops.append_log(live, pending.operation_id, "Test auto-reverted pack JSONs")
+
+
+def list_pending_tests() -> list[dict[str, Any]]:
+    with _pending_lock:
+        return [
+            {
+                "world_id": wid,
+                "operation_id": p.operation_id,
+                "world_folder": p.world_folder,
+                "expires_at": p.expires_at.isoformat(),
+            }
+            for wid, p in _pending_tests.items()
+        ]
+
+
+def write_merged_pack_jsons(
+    session: Session, settings: Settings, world_folder: str, world_id: int
+) -> None:
+    """Write world_*_packs.json merging embedded packs + enabled profile.
+
+    Used by apply and by world switch so embedded packs are preserved.
+    """
+
+    world_dir = worlds_service.world_path(settings, world_folder)
+    world_dir.mkdir(parents=True, exist_ok=True)
+
+    enabled = list(
+        session.exec(
+            select(WorldAddon)
+            .where(
+                WorldAddon.world_id == world_id,
+                WorldAddon.enabled.is_(True),  # type: ignore[union-attr]
+            )
+            .order_by(WorldAddon.load_order, WorldAddon.id)
+        ).all()
+    )
+
+    bp_entries: list[dict[str, Any]] = []
+    rp_entries: list[dict[str, Any]] = []
+
+    # Embedded first
+    bp_entries.extend(_read_embedded_pack_refs(world_dir / "behavior_packs"))
+    rp_entries.extend(_read_embedded_pack_refs(world_dir / "resource_packs"))
+
+    seen_bp = {e["pack_id"] for e in bp_entries}
+    seen_rp = {e["pack_id"] for e in rp_entries}
+
+    for row in enabled:
+        addon = get_addon(session, row.addon_id)
+        if addon.encrypted:
+            continue
+        _sync_pack_into_data(settings, addon)
+        entry = {
+            "pack_id": addon.pack_uuid,
+            "version": _version_list(addon.version),
+        }
+        if addon.kind == AddonKind.BEHAVIOR:
+            if addon.pack_uuid not in seen_bp:
+                bp_entries.append(entry)
+                seen_bp.add(addon.pack_uuid)
+        else:
+            if addon.pack_uuid not in seen_rp:
+                rp_entries.append(entry)
+                seen_rp.add(addon.pack_uuid)
+
+    _write_json(
+        world_dir / "world_behavior_packs.json",
+        bp_entries,
+        uid=settings.bedrock_uid,
+        gid=settings.bedrock_gid,
+    )
+    _write_json(
+        world_dir / "world_resource_packs.json",
+        rp_entries,
+        uid=settings.bedrock_uid,
+        gid=settings.bedrock_gid,
+    )
+
+
+def parse_manifest(pack_root: Path) -> ParsedPack:
+    """Parse a Bedrock pack manifest.json.
+
+    Raises:
+        AppError: missing/invalid manifest.
+    """
+
+    manifest_path = pack_root / "manifest.json"
+    if not manifest_path.is_file():
+        raise AppError(f"manifest.json missing in {pack_root.name}")
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise AppError(f"Invalid manifest.json: {exc}") from exc
+
+    header = data.get("header") or {}
+    name = str(header.get("name") or pack_root.name)
+    pack_uuid = str(header.get("uuid") or "").strip()
+    if not UUID_RE.match(pack_uuid):
+        raise AppError("manifest header.uuid is missing or invalid")
+    version_raw = header.get("version") or [1, 0, 0]
+    if isinstance(version_raw, list):
+        version_list = [int(x) for x in version_raw[:3]]
+        while len(version_list) < 3:
+            version_list.append(0)
+        version = ".".join(str(x) for x in version_list)
+    else:
+        version = str(version_raw)
+        version_list = _version_list(version)
+
+    modules = data.get("modules") or []
+    kind = _detect_kind(modules)
+    encrypted = _detect_encrypted(pack_root, data)
+    needs_beta = _detect_beta_apis(data, modules)
+    deps: list[str] = []
+    for dep in data.get("dependencies") or []:
+        if isinstance(dep, dict) and dep.get("uuid"):
+            deps.append(str(dep["uuid"]))
+
+    return ParsedPack(
+        name=name,
+        pack_uuid=pack_uuid.lower(),
+        version=version,
+        version_list=version_list,
+        kind=kind,
+        encrypted=encrypted,
+        needs_beta_apis=needs_beta,
+        dependencies=deps,
+        root=pack_root,
+    )
+
+
+def _run_apply(
+    session: Session,
+    settings: Settings,
+    *,
+    operation_id: int,
+    world_id: int,
+    world_folder: str,
+    test_mode: bool,
+    started_by: int | None,
+) -> None:
+    from app.services import backups as backup_service
+    from app.services.backups import HEALTH_TIMEOUT, _wait_for_server_healthy
+
+    world_dir = worlds_service.world_path(settings, world_folder)
+    bp_path = world_dir / "world_behavior_packs.json"
+    rp_path = world_dir / "world_resource_packs.json"
+    snapshot_bp = bp_path.read_text(encoding="utf-8") if bp_path.is_file() else "[]\n"
+    snapshot_rp = rp_path.read_text(encoding="utf-8") if rp_path.is_file() else "[]\n"
+
+    # Pre-addon backup of current world if valid
+    try:
+        worlds_service.validate_world_folder(world_dir)
+        ops.append_log(session, operation_id, "Taking pre-addon backup")
+        backup_service.create_backup_sync(
+            session,
+            settings,
+            world_id=world_id,
+            world_folder=world_folder,
+            kind=BackupKind.PRE_ADDON,
+            created_by=started_by,
+            operation_id=operation_id,
+        )
+    except AppError as exc:
+        ops.append_log(session, operation_id, f"Pre-addon backup skipped: {exc}")
+
+    docker = get_docker_client(settings)
+    was_running = docker.status().running
+    applied = False
+    try:
+        if was_running:
+            ops.append_log(session, operation_id, "Stopping Bedrock")
+            try:
+                console_service.send_command(settings, "stop", actor="addon")
+                time.sleep(1)
+            except Exception:
+                pass
+            docker.stop(timeout=45)
+
+        ops.append_log(session, operation_id, "Writing merged pack JSON profiles")
+        write_merged_pack_jsons(session, settings, world_folder, world_id)
+        applied = True
+
+        if _apply_fail_hook is not None:
+            _apply_fail_hook()
+
+        ops.append_log(session, operation_id, "Starting Bedrock")
+        docker.start()
+        ops.append_log(session, operation_id, "Waiting for health")
+        _wait_for_server_healthy(settings, timeout=HEALTH_TIMEOUT)
+
+        if test_mode:
+            from datetime import timedelta
+
+            minutes = max(1, settings.addon_test_minutes)
+            expires = datetime.now(UTC) + timedelta(minutes=minutes)
+            ops.append_log(
+                session,
+                operation_id,
+                f"Test mode: auto-revert in {minutes} min unless kept",
+            )
+            _schedule_test_revert(
+                settings,
+                operation_id=operation_id,
+                world_id=world_id,
+                world_folder=world_folder,
+                snapshot_bp=snapshot_bp,
+                snapshot_rp=snapshot_rp,
+                expires_at=expires,
+            )
+        ops.append_log(session, operation_id, "Add-on apply complete")
+    except Exception as exc:
+        ops.append_log(session, operation_id, f"Apply failed: {exc}")
+        if applied:
+            ops.append_log(session, operation_id, "Rolling back pack JSON files")
+            try:
+                _restore_pack_jsons(settings, world_folder, snapshot_bp, snapshot_rp)
+                try:
+                    docker.stop(timeout=30)
+                except Exception:
+                    pass
+                docker.start()
+                try:
+                    _wait_for_server_healthy(settings, timeout=HEALTH_TIMEOUT)
+                except Exception as health_exc:
+                    ops.append_log(
+                        session, operation_id, f"Rollback health warning: {health_exc}"
+                    )
+                op = ops.get_operation(session, operation_id)
+                op.rollback_performed = True
+                session.add(op)
+                session.commit()
+                ops.append_log(session, operation_id, "Rollback completed")
+            except Exception as rb_exc:
+                ops.append_log(session, operation_id, f"Rollback failed: {rb_exc}")
+                raise
+        raise
+
+
+def _schedule_test_revert(
+    settings: Settings,
+    *,
+    operation_id: int,
+    world_id: int,
+    world_folder: str,
+    snapshot_bp: str,
+    snapshot_rp: str,
+    expires_at: datetime,
+) -> None:
+    delay = max(1.0, (expires_at - datetime.now(UTC)).total_seconds())
+
+    def _fire() -> None:
+        try:
+            with Session(get_engine()) as session:
+                revert_test_now(session, settings, world_id=world_id, user_id=None)
+        except AppError:
+            pass
+        except Exception:
+            logger.exception("Auto-revert failed for world %s", world_id)
+
+    timer = threading.Timer(delay, _fire)
+    timer.daemon = True
+    pending = PendingTest(
+        operation_id=operation_id,
+        world_id=world_id,
+        world_folder=world_folder,
+        snapshot_bp=snapshot_bp,
+        snapshot_rp=snapshot_rp,
+        expires_at=expires_at,
+        timer=timer,
+    )
+    with _pending_lock:
+        old = _pending_tests.pop(world_id, None)
+        if old:
+            old.timer.cancel()
+        _pending_tests[world_id] = pending
+    timer.start()
+
+
+def _restore_pack_jsons(
+    settings: Settings, world_folder: str, snapshot_bp: str, snapshot_rp: str
+) -> None:
+    world_dir = worlds_service.world_path(settings, world_folder)
+    _write_text(
+        world_dir / "world_behavior_packs.json",
+        snapshot_bp if snapshot_bp.endswith("\n") else snapshot_bp + "\n",
+        uid=settings.bedrock_uid,
+        gid=settings.bedrock_gid,
+    )
+    _write_text(
+        world_dir / "world_resource_packs.json",
+        snapshot_rp if snapshot_rp.endswith("\n") else snapshot_rp + "\n",
+        uid=settings.bedrock_uid,
+        gid=settings.bedrock_gid,
+    )
+
+
+def _sync_pack_into_data(settings: Settings, addon: Addon) -> None:
+    src = packs_library_dir(settings) / addon.storage_path
+    if not src.is_dir():
+        raise AppError(f"Pack storage missing for {addon.name}")
+    dest_root = (
+        behavior_packs_dir(settings)
+        if addon.kind == AddonKind.BEHAVIOR
+        else resource_packs_dir(settings)
+    )
+    safe_name = f"{addon.name}-{addon.pack_uuid[:8]}".replace("/", "_")[:80]
+    dest = dest_root / safe_name
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(src, dest, symlinks=False)
+    _chown_tree(dest, settings.bedrock_uid, settings.bedrock_gid)
+
+
+def _read_embedded_pack_refs(folder: Path) -> list[dict[str, Any]]:
+    if not folder.is_dir():
+        return []
+    entries: list[dict[str, Any]] = []
+    for child in sorted(folder.iterdir()):
+        if not child.is_dir():
+            continue
+        manifest = child / "manifest.json"
+        if not manifest.is_file():
+            continue
+        try:
+            parsed = parse_manifest(child)
+        except AppError:
+            continue
+        entries.append({"pack_id": parsed.pack_uuid, "version": parsed.version_list})
+    return entries
+
+
+def _discover_pack_roots(extracted: Path) -> list[Path]:
+    roots: list[Path] = []
+    for manifest in extracted.rglob("manifest.json"):
+        roots.append(manifest.parent)
+    # Prefer shallowest unique roots (avoid nested duplicates)
+    roots.sort(key=lambda p: len(p.parts))
+    filtered: list[Path] = []
+    for root in roots:
+        if any(root.is_relative_to(prev) and root != prev for prev in filtered):
+            continue
+        filtered.append(root)
+    return filtered
+
+
+def _detect_kind(modules: list[Any]) -> AddonKind:
+    types = {str(m.get("type", "")).lower() for m in modules if isinstance(m, dict)}
+    if "resources" in types:
+        return AddonKind.RESOURCE
+    if "data" in types or "script" in types:
+        return AddonKind.BEHAVIOR
+    # Default: behavior if script-like else resource
+    return AddonKind.BEHAVIOR
+
+
+def _detect_encrypted(pack_root: Path, manifest: dict[str, Any]) -> bool:
+    if manifest.get("content_key") or (manifest.get("header") or {}).get("content_key"):
+        return True
+    contents = pack_root / "contents.json"
+    if contents.is_file():
+        try:
+            data = json.loads(contents.read_text(encoding="utf-8"))
+            if data.get("content_key"):
+                return True
+            for entry in data.get("content") or []:
+                if isinstance(entry, dict) and entry.get("key"):
+                    return True
+        except json.JSONDecodeError:
+            pass
+    # Marketplace packs often ship only signatures without readable assets
+    if (pack_root / "signatures.json").is_file() and not any(pack_root.rglob("*.json")):
+        return True
+    return False
+
+
+def _detect_beta_apis(manifest: dict[str, Any], modules: list[Any]) -> bool:
+    for mod in modules:
+        if not isinstance(mod, dict):
+            continue
+        if str(mod.get("type", "")).lower() == "script":
+            lang = str(mod.get("language", "")).lower()
+            if lang in {"javascript", "js"}:
+                # Script modules on BDS typically need Beta APIs experiment
+                return True
+    for dep in manifest.get("dependencies") or []:
+        if not isinstance(dep, dict):
+            continue
+        module_name = str(dep.get("module_name") or "")
+        if (
+            module_name.startswith("@minecraft/")
+            and "beta" in str(dep.get("version", "")).lower()
+        ):
+            return True
+    return False
+
+
+def _refresh_pairing(session: Session) -> None:
+    addons = list(session.exec(select(Addon)).all())
+    # Pair opposite kinds that share source sha256 (same upload) first
+    by_sha: dict[str, list[Addon]] = {}
+    for addon in addons:
+        by_sha.setdefault(addon.sha256, []).append(addon)
+
+    paired_ids: set[int] = set()
+    for group in by_sha.values():
+        bps = [a for a in group if a.kind == AddonKind.BEHAVIOR]
+        rps = [a for a in group if a.kind == AddonKind.RESOURCE]
+        if len(bps) == 1 and len(rps) == 1 and bps[0].id and rps[0].id:
+            bps[0].pair_addon_id = rps[0].id
+            rps[0].pair_addon_id = bps[0].id
+            bps[0].missing_pair = False
+            rps[0].missing_pair = False
+            session.add(bps[0])
+            session.add(rps[0])
+            paired_ids.add(bps[0].id)
+            paired_ids.add(rps[0].id)
+
+    for addon in addons:
+        if addon.id in paired_ids:
+            continue
+        if addon.pair_addon_id:
+            pair = session.get(Addon, addon.pair_addon_id)
+            if pair and pair.kind != addon.kind:
+                addon.missing_pair = False
+                session.add(addon)
+                continue
+            addon.pair_addon_id = None
+        # Resource-only → missing behavior pack warning
+        if addon.kind == AddonKind.RESOURCE:
+            addon.missing_pair = True
+            session.add(addon)
+        else:
+            addon.missing_pair = False
+            session.add(addon)
+
+
+def _version_list(version: str) -> list[int]:
+    parts = []
+    for piece in version.split(".")[:3]:
+        try:
+            parts.append(int(piece))
+        except ValueError:
+            parts.append(0)
+    while len(parts) < 3:
+        parts.append(0)
+    return parts
+
+
+def _write_json(path: Path, data: Any, *, uid: int, gid: int) -> None:
+    text = json.dumps(data, indent=2) + "\n"
+    _write_text(path, text, uid=uid, gid=gid)
+
+
+def _write_text(path: Path, text: str, *, uid: int, gid: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".mf-packjson.")
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.chown(tmp_path, uid, gid)
+        except PermissionError:
+            pass
+        tmp_path.replace(path)
+        try:
+            os.chown(path, uid, gid)
+        except PermissionError:
+            pass
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def _chown_tree(path: Path, uid: int, gid: int) -> None:
+    for root, dirs, files in os.walk(path):
+        try:
+            os.chown(root, uid, gid)
+        except PermissionError:
+            pass
+        for name in dirs + files:
+            try:
+                os.chown(os.path.join(root, name), uid, gid)
+            except PermissionError:
+                pass
+
+
+def set_texturepack_required(
+    session: Session,
+    settings: Settings,
+    *,
+    required: bool,
+    user_id: int,
+    role: UserRole,
+    ip: str | None,
+) -> dict[str, str]:
+    """Toggle texturepack-required in server.properties (admin)."""
+
+    if role != UserRole.ADMIN:
+        raise ForbiddenError("Admin access required")
+    values = server_props.write_properties(
+        settings, {"texturepack-required": "true" if required else "false"}
+    )
+    record_audit(
+        session,
+        action="addon.texturepack_required",
+        user_id=user_id,
+        details={"required": required},
+        ip=ip,
+    )
+    session.commit()
+    return values

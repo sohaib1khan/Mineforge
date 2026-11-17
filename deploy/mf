@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# MineForge Docker-first helper — no local Python/Node required.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEPLOY="$ROOT/deploy"
+COMPOSE=(docker compose -f "$DEPLOY/docker-compose.yml" --env-file "$DEPLOY/.env")
+TEST_COMPOSE=(docker compose -f "$DEPLOY/docker-compose.test.yml")
+
+die() { echo "error: $*" >&2; exit 1; }
+
+ensure_env() {
+  if [[ ! -f "$DEPLOY/.env" ]]; then
+    echo "Creating deploy/.env from .env.example …"
+    cp "$DEPLOY/.env.example" "$DEPLOY/.env"
+    # Replace CHANGE_ME secret with a random value for local Docker.
+    if command -v openssl >/dev/null 2>&1; then
+      local key
+      key="$(openssl rand -hex 32)"
+      sed -i "s/^MINEFORGE_SECRET_KEY=.*/MINEFORGE_SECRET_KEY=${key}/" "$DEPLOY/.env"
+    fi
+    echo "Wrote $DEPLOY/.env — review before production use."
+  fi
+  # Load selected vars without evaluating shell metacharacters in values.
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    local key="${line%%=*}"
+    local val="${line#*=}"
+    val="${val%\"}"
+    val="${val#\"}"
+    val="${val%\'}"
+    val="${val#\'}"
+    case "$key" in
+      MINEFORGE_HOST_PORT|MINEFORGE_PUBLIC_URL|MINEFORGE_COOKIE_SECURE)
+        export "$key=$val"
+        ;;
+    esac
+  done < "$DEPLOY/.env"
+}
+
+cmd_test() {
+  echo "==> Backend tests (Docker)"
+  "${TEST_COMPOSE[@]}" build backend-test
+  "${TEST_COMPOSE[@]}" run --rm --no-deps backend-test
+
+  echo "==> Frontend lint/typecheck/test/build (Docker)"
+  # frontend-test stage already runs lint+typecheck+test+build at image build time
+  docker build -f "$ROOT/Dockerfile" --target frontend-test -t mineforge-frontend-test:local "$ROOT"
+
+  echo "==> All Docker tests passed"
+}
+
+cmd_up() {
+  ensure_env
+  local profile_args=()
+  if [[ "${1:-}" == "bedrock" ]]; then
+    profile_args=(--profile bedrock)
+  fi
+  echo "==> Building and starting MineForge"
+  "${COMPOSE[@]}" up -d --build socket-proxy mineforge
+  if [[ "${1:-}" == "bedrock" ]]; then
+    "${COMPOSE[@]}" --profile bedrock up -d --build bedrock
+  fi
+  echo "==> Waiting for health"
+  local i
+  for i in $(seq 1 40); do
+    local port="${MINEFORGE_HOST_PORT:-18080}"
+    if curl -fsS "http://127.0.0.1:${port}/api/health" >/dev/null 2>&1; then
+      echo "Healthy: http://127.0.0.1:${port}"
+      local needs
+      needs="$(curl -fsS "http://127.0.0.1:${port}/api/setup/status" | sed -n 's/.*"needs_setup":\s*\(true\|false\).*/\1/p')"
+      if [[ "$needs" == "true" ]]; then
+        echo "==> First-run setup required — open the UI and create the admin account."
+      else
+        echo "==> Admin already exists — open the UI and sign in."
+      fi
+      return 0
+    fi
+    sleep 2
+  done
+  die "mineforge did not become healthy; try: $0 logs"
+}
+
+cmd_down() {
+  ensure_env
+  "${COMPOSE[@]}" --profile bedrock down --remove-orphans
+}
+
+cmd_logs() {
+  ensure_env
+  "${COMPOSE[@]}" logs -f --tail=200 mineforge
+}
+
+cmd_reset() {
+  ensure_env
+  echo "==> Resetting app data (users/DB) for a fresh first-run setup"
+  "${COMPOSE[@]}" stop mineforge >/dev/null 2>&1 || true
+  "${COMPOSE[@]}" rm -f mineforge >/dev/null 2>&1 || true
+  docker volume rm -f mineforge_mineforge-data >/dev/null 2>&1 || true
+  "${COMPOSE[@]}" up -d --build socket-proxy mineforge
+  echo "==> Waiting for health"
+  local port="${MINEFORGE_HOST_PORT:-18080}"
+  local i
+  for i in $(seq 1 40); do
+    if curl -fsS "http://127.0.0.1:${port}/api/health" >/dev/null 2>&1; then
+      local status
+      status="$(curl -fsS "http://127.0.0.1:${port}/api/setup/status")"
+      echo "$status"
+      if echo "$status" | grep -q '"needs_setup":true'; then
+        echo "Open http://127.0.0.1:${port}/ — first-time setup will ask you to create the admin."
+      else
+        die "reset finished but needs_setup is still false"
+      fi
+      return 0
+    fi
+    sleep 2
+  done
+  die "mineforge did not become healthy after reset"
+}
+
+cmd_ps() {
+  ensure_env
+  "${COMPOSE[@]}" ps
+}
+
+cmd_smoke() {
+  ensure_env
+  local port="${MINEFORGE_HOST_PORT:-18080}"
+  local base="http://127.0.0.1:${port}"
+  echo "==> Smoke: health"
+  curl -fsS "$base/api/health" | tee /tmp/mf-health.json
+  echo
+  echo "==> Smoke: setup status"
+  curl -fsS "$base/api/setup/status" | tee /tmp/mf-setup.json
+  echo
+  echo "==> Smoke: SPA shell"
+  curl -fsS -o /dev/null -w "index.html HTTP %{http_code}\n" "$base/"
+  echo "OK"
+}
+
+usage() {
+  cat <<EOF
+MineForge Docker helper
+
+Usage: $0 <command>
+
+  test         Run backend + frontend tests in Docker
+  up [bedrock] Build & start app (optional Bedrock profile)
+  reset        Wipe app DB volume and force first-run setup UI
+  down         Stop stack
+  logs         Follow app logs
+  smoke        Hit health/setup/SPA endpoints
+  ps           Show compose services
+EOF
+}
+
+main() {
+  local cmd="${1:-}"
+  shift || true
+  case "$cmd" in
+    test) cmd_test "$@" ;;
+    up) cmd_up "$@" ;;
+    reset) cmd_reset "$@" ;;
+    down) cmd_down "$@" ;;
+    logs) cmd_logs "$@" ;;
+    smoke) cmd_smoke "$@" ;;
+    ps) cmd_ps "$@" ;;
+    ""|-h|--help|help) usage ;;
+    *) die "unknown command: $cmd (try: help)" ;;
+  esac
+}
+
+main "$@"

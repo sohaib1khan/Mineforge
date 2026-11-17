@@ -1,0 +1,112 @@
+# MineForge — Docker-first deploy.
+#   ./deploy/mf up              # app + socket-proxy
+#   ./deploy/mf up bedrock      # also start Bedrock dedicated server
+#   ./deploy/mf test
+
+name: mineforge
+
+services:
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    environment:
+      CONTAINERS: 1
+      INFO: 1
+      POST: 1
+      LOGS: 1
+      STATS: 1
+      BUILD: 0
+      COMMIT: 0
+      CONFIGS: 0
+      DISTRIBUTION: 0
+      EXEC: 0
+      IMAGES: 0
+      NETWORKS: 0
+      NODES: 0
+      PLUGINS: 0
+      SERVICES: 0
+      SESSION: 0
+      SWARM: 0
+      SYSTEM: 0
+      TASKS: 0
+      VOLUMES: 0
+      ALLOW_RESTART: 1
+      ALLOW_START: 1
+      ALLOW_STOP: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - mineforge
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  mineforge:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: runtime
+    image: mineforge:local
+    ports:
+      - "${MINEFORGE_HOST_PORT:-18080}:8080"
+    env_file:
+      - .env
+    environment:
+      MINEFORGE_APP_DATA_DIR: /app-data
+      MINEFORGE_DATA_DIR: /data
+      MINEFORGE_STATIC_DIR: /app/static
+      MINEFORGE_DOCKER_HOST: tcp://socket-proxy:2375
+      MINEFORGE_BEDROCK_CONTAINER: ${MINEFORGE_BEDROCK_CONTAINER:-bedrock}
+      MINEFORGE_BEDROCK_UID: ${BEDROCK_UID:-1000}
+      MINEFORGE_BEDROCK_GID: ${BEDROCK_GID:-1000}
+    volumes:
+      - mineforge-data:/app-data
+      - bedrock-data:/data
+    depends_on:
+      - socket-proxy
+    restart: unless-stopped
+    networks:
+      - mineforge
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  bedrock:
+    profiles: ["bedrock"]
+    image: itzg/minecraft-bedrock-server:${BEDROCK_IMAGE_TAG:-latest}
+    container_name: ${MINEFORGE_BEDROCK_CONTAINER:-bedrock}
+    environment:
+      EULA: "TRUE"
+      VERSION: ${BEDROCK_VERSION:-LATEST}
+      UID: ${BEDROCK_UID:-1000}
+      GID: ${BEDROCK_GID:-1000}
+      TZ: ${TZ:-UTC}
+      TRANSPORT: nethernet
+      SERVER_PORT: "19132"
+      SERVER_UDP_PORTS: ${SERVER_UDP_PORTS:-'<public_ip>:19140-19155:19140-19155'}
+      # Intentionally NOT setting LEVEL_NAME / GAMEMODE / DIFFICULTY —
+      # MineForge owns those keys in server.properties.
+    volumes:
+      - bedrock-data:/data
+    ports:
+      - "19132:19132/tcp"
+      - "19140-19155:19140-19155/udp"
+    networks:
+      - mineforge
+    restart: unless-stopped
+
+volumes:
+  mineforge-data:
+  bedrock-data:
+
+networks:
+  mineforge:
+    name: mineforge
