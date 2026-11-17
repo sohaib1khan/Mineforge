@@ -96,6 +96,47 @@ def get_running_operation(session: Session) -> Operation | None:
     ).first()
 
 
+def recover_orphaned_operations(session: Session) -> int:
+    """Mark RUNNING/QUEUED ops failed after process restart (no worker left).
+
+    Container restarts leave DB rows as ``running`` while the thread is gone,
+    which blocks switch/backup until cleared. Safe on every startup because
+    operations only run in-process.
+
+    Returns:
+        Number of operations recovered.
+    """
+
+    orphans = list(
+        session.exec(
+            select(Operation).where(
+                col(Operation.status).in_(
+                    [OperationStatus.RUNNING, OperationStatus.QUEUED]
+                )
+            )
+        ).all()
+    )
+    if not orphans:
+        return 0
+    now = datetime.now(UTC)
+    stamp = now.strftime("%H:%M:%S")
+    for op in orphans:
+        op.status = OperationStatus.FAILED
+        if op.started_at is None:
+            op.started_at = now
+        op.finished_at = now
+        note = (
+            f"[{stamp}] FAILED: Recovered after process restart "
+            f"(orphaned {op.type.value if isinstance(op.type, OperationType) else op.type})"
+        )
+        op.log = (op.log + "\n" if op.log else "") + note
+        session.add(op)
+    session.commit()
+    release_lock()
+    logger.warning("Recovered %s orphaned operation(s) on startup", len(orphans))
+    return len(orphans)
+
+
 def append_log(session: Session, operation_id: int, line: str) -> Operation:
     """Append a timestamped line to the operation log and notify SSE subscribers.
 
