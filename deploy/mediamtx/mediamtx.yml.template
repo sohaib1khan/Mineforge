@@ -49,5 +49,6 @@ pathDefaults:
   source: publisher
 
 paths:
-  # Match "live" and OBS's "live/" (trailing slash from Custom stream key).
-  ~^live/?$:
+  # OBS Custom: Server rtmp://host:1935/live + Stream Key stream?user=…&pass=…
+  # → MediaMTX path "live/stream"
+  live/stream:

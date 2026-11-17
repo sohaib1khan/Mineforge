@@ -30,8 +30,13 @@ def _settings(tmp_path: Path) -> Settings:
 
 
 def test_validate_hls_path_allows_live_playlist() -> None:
-    assert stream_service.validate_hls_rel_path("live/index.m3u8") == "live/index.m3u8"
-    assert stream_service.validate_hls_rel_path("/live/seg.ts") == "live/seg.ts"
+    assert (
+        stream_service.validate_hls_rel_path("live/stream/index.m3u8")
+        == "live/stream/index.m3u8"
+    )
+    assert stream_service.validate_hls_rel_path("/live/stream/seg.ts") == (
+        "live/stream/seg.ts"
+    )
 
 
 def test_validate_hls_path_rejects_traversal_and_other_roots() -> None:
@@ -66,7 +71,7 @@ def test_rotate_key_and_authorize_publish(tmp_path: Path, db_session: Session) -
         db_session,
         settings,
         action="publish",
-        path="live",
+        path="live/stream",
         password=plaintext,
         token="",
         publisher_ip="10.0.0.2",
@@ -76,14 +81,23 @@ def test_rotate_key_and_authorize_publish(tmp_path: Path, db_session: Session) -
         db_session,
         settings,
         action="publish",
-        path="live",
+        path="live/stream",
         password="wrong-key-value",
         token="",
         publisher_ip="10.0.0.2",
         protocol="rtmp",
     )
+    assert not stream_service.authorize_publish(
+        db_session,
+        settings,
+        action="publish",
+        path="live/live",
+        password=plaintext,
+        token="",
+        publisher_ip="10.0.0.2",
+        protocol="rtmp",
+    )
 
-    # Old key dies after rotate
     new_key, _ = stream_service.rotate_key(
         db_session, settings, user=admin, ip="127.0.0.1"
     )
@@ -91,7 +105,7 @@ def test_rotate_key_and_authorize_publish(tmp_path: Path, db_session: Session) -
         db_session,
         settings,
         action="publish",
-        path="live",
+        path="live/stream",
         password=plaintext,
         token="",
         publisher_ip="10.0.0.2",
@@ -101,7 +115,7 @@ def test_rotate_key_and_authorize_publish(tmp_path: Path, db_session: Session) -
         db_session,
         settings,
         action="publish",
-        path="live",
+        path="live/stream",
         password=new_key,
         token="",
         publisher_ip="10.0.0.2",
@@ -115,7 +129,7 @@ def test_authorize_read_live_path(tmp_path: Path, db_session: Session) -> None:
         db_session,
         settings,
         action="read",
-        path="live",
+        path="live/stream",
         password="",
         token="",
         publisher_ip="172.18.0.2",
@@ -140,10 +154,10 @@ def test_verify_internal_caller(tmp_path: Path) -> None:
 
 def test_rtmp_urls(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
-    assert stream_service.rtmp_server_url(settings) == "rtmp://192.0.2.10:1935/"
-    assert stream_service.obs_stream_key_field("abc") == "live?user=publish&pass=abc"
+    assert stream_service.rtmp_server_url(settings) == "rtmp://192.0.2.10:1935/live"
+    assert stream_service.obs_stream_key_field("abc") == "stream?user=publish&pass=abc"
     example = stream_service.rtmp_url_with_key(settings, "abc")
-    assert example == "rtmp://192.0.2.10:1935/live?user=publish&pass=abc"
+    assert example == "rtmp://192.0.2.10:1935/live/stream?user=publish&pass=abc"
 
 
 def test_rtmp_host_falls_back_to_public_url(tmp_path: Path) -> None:
@@ -159,5 +173,6 @@ def test_rtmp_host_falls_back_to_public_url(tmp_path: Path) -> None:
     )
     assert settings.resolved_stream_rtmp_host() == "mineforge.example.com"
     assert (
-        stream_service.rtmp_server_url(settings) == "rtmp://mineforge.example.com:1935/"
+        stream_service.rtmp_server_url(settings)
+        == "rtmp://mineforge.example.com:1935/live"
     )

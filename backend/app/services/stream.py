@@ -32,13 +32,18 @@ from app.services.audit import record_audit
 
 logger = logging.getLogger(__name__)
 
-STREAM_PATH = "live"
+# OBS Custom uses RTMP app + stream name → MediaMTX path "live/stream".
+STREAM_APP = "live"
+STREAM_NAME = "stream"
+STREAM_PATH = f"{STREAM_APP}/{STREAM_NAME}"
+HLS_PLAYLIST = f"{STREAM_PATH}/index.m3u8"
 STATUS_CACHE_SECONDS = 3.0
 HLS_ALLOWED_SUFFIXES = (".m3u8", ".ts", ".mp4", ".m4s", ".cmfv", ".cmfa")
 OBS_NOTES = [
     "OBS → Settings → Stream: Service must be Custom (not Twitch/YouTube).",
-    "Server = rtmp://HOST:1935/  (trailing slash, not https://).",
-    "Stream Key = live?user=publish&pass=… (must start with live? — Copy from MineForge).",
+    "Server = rtmp://HOST:1935/live  (ends with /live — not https://).",
+    "Stream Key = stream?user=publish&pass=… (must start with stream? — Copy from MineForge).",
+    "Do not put live in both Server and Stream Key (that becomes path live/live).",
     "Cloudflare: do NOT use an orange-cloud hostname for RTMP. Use a DNS-only record or LAN IP.",
     "Forward TCP 1935 on the router/firewall for remote OBS. RTMP is not encrypted — use a strong key.",
     "Output: 1280×720 or 1920×1080, 30 fps, CBR 2500–4500 kbps, keyframe interval 2 s.",
@@ -75,30 +80,43 @@ def get_or_create_settings(session: Session, settings: Settings) -> StreamSettin
 
 
 def rtmp_server_url(settings: Settings) -> str:
-    """OBS Custom server URL (application root, no credentials).
-
-    OBS appends Stream Key after this. Use Stream Key ``live?user=…&pass=…``
-    so the MediaMTX path is ``live`` (not ``live/``).
-    """
+    """OBS Custom server URL (RTMP application ``live``, no credentials)."""
 
     host = settings.resolved_stream_rtmp_host()
-    return f"rtmp://{host}:{settings.stream_rtmp_port}/"
+    return f"rtmp://{host}:{settings.stream_rtmp_port}/{STREAM_APP}"
 
 
 def obs_stream_key_field(stream_key: str) -> str:
-    """Value for OBS Custom 'Stream Key' (path + MediaMTX query auth)."""
+    """OBS Custom Stream Key: stream name + MediaMTX query auth.
 
-    return f"{STREAM_PATH}?user=publish&pass={stream_key}"
+    Combined with Server ``…/live`` this publishes MediaMTX path ``live/stream``.
+    Stream Key must not start with ``?`` (OBS would create invalid ``live/``).
+    """
+
+    return f"{STREAM_NAME}?user=publish&pass={stream_key}"
 
 
 def rtmp_url_with_key(settings: Settings, stream_key: str) -> str:
     """Full RTMP publish URL with query credentials for MediaMTX."""
 
-    host = settings.resolved_stream_rtmp_host()
-    return (
-        f"rtmp://{host}:{settings.stream_rtmp_port}/"
-        f"{obs_stream_key_field(stream_key)}"
-    )
+    return f"{rtmp_server_url(settings)}/{obs_stream_key_field(stream_key)}"
+
+
+def _normalize_path(path: str) -> str:
+    return (path or "").strip().strip("/")
+
+
+def _is_publish_path(path: str) -> bool:
+    """True when OBS is publishing the configured app/stream path."""
+
+    return _normalize_path(path) == STREAM_PATH
+
+
+def _is_read_path(path: str) -> bool:
+    """True when MediaMTX is reading HLS under the live app."""
+
+    cleaned = _normalize_path(path)
+    return cleaned == STREAM_APP or cleaned.startswith(f"{STREAM_APP}/")
 
 
 def settings_to_dict(
@@ -269,12 +287,11 @@ def authorize_publish(
     """
 
     action_l = (action or "").strip().lower()
-    # OBS often publishes as "live/" when Stream Key starts with "?".
-    path_l = (path or "").strip().strip("/")
+    path_l = _normalize_path(path)
     stream_row = get_or_create_settings(session, settings)
 
     if action_l in {"read", "playback"}:
-        if path_l == STREAM_PATH or path_l.startswith(f"{STREAM_PATH}/"):
+        if _is_read_path(path_l):
             return True
         record_audit(
             session,
@@ -299,7 +316,7 @@ def authorize_publish(
         session.commit()
         return False
 
-    if path_l != STREAM_PATH:
+    if not _is_publish_path(path_l):
         record_audit(
             session,
             action="stream.auth.denied",
@@ -402,18 +419,30 @@ def _invalidate_status_cache() -> None:
 
 
 def _fetch_mediamtx_path(settings: Settings) -> dict[str, Any] | None:
-    url = urljoin(
-        settings.mediamtx_api_url.rstrip("/") + "/",
-        f"v3/paths/get/{STREAM_PATH}",
-    )
+    """Return the ready live/stream path info, if any."""
+
+    base = settings.mediamtx_api_url.rstrip("/") + "/"
     try:
         with httpx.Client(timeout=2.5) as client:
-            response = client.get(url)
-            if response.status_code == 404:
+            # Prefer exact path used by OBS (app/stream).
+            direct = client.get(urljoin(base, f"v3/paths/get/{STREAM_PATH}"))
+            if direct.status_code == 200:
+                data = direct.json()
+                return data if isinstance(data, dict) else None
+            listed = client.get(urljoin(base, "v3/paths/list"))
+            if listed.status_code != 200:
                 return None
-            response.raise_for_status()
-            data = response.json()
-            return data if isinstance(data, dict) else None
+            payload = listed.json()
+            items = payload.get("items") if isinstance(payload, dict) else None
+            if not isinstance(items, list):
+                return None
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "").strip().strip("/")
+                if name == STREAM_PATH or name.startswith(f"{STREAM_PATH}/"):
+                    return item
+            return None
     except (httpx.HTTPError, ValueError) as exc:
         logger.debug("MediaMTX path status unavailable: %s", exc)
         return None
@@ -538,7 +567,12 @@ def validate_hls_rel_path(rel_path: str) -> str:
         raise NotFoundError("Missing HLS path")
     if _TRAVERSAL_RE.search(cleaned) or cleaned.startswith(".."):
         raise ForbiddenError("Invalid HLS path")
-    if not (cleaned == STREAM_PATH or cleaned.startswith(f"{STREAM_PATH}/")):
+    if not (
+        cleaned == STREAM_APP
+        or cleaned.startswith(f"{STREAM_APP}/")
+        or cleaned == STREAM_PATH
+        or cleaned.startswith(f"{STREAM_PATH}/")
+    ):
         raise ForbiddenError("HLS path must be under live/")
     # Allow playlist root and segment files.
     name = cleaned.rsplit("/", 1)[-1]

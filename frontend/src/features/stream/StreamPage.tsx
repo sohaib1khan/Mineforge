@@ -238,8 +238,7 @@ export function StreamPage() {
                           </Button>
                         </div>
                         <p className="text-xs text-muted">
-                          Must be rtmp://HOST:1935/ (trailing slash) — not https:// and
-                          not …/live
+                          Must be rtmp://HOST:1935/live — not https://
                           {settings.rtmp_host
                             ? ` (host: ${settings.rtmp_host}:${settings.rtmp_port})`
                             : ""}
@@ -252,7 +251,7 @@ export function StreamPage() {
                       </div>
                       <div className="space-y-1">
                         <p className="text-muted">
-                          Stream Key (OBS → Stream Key — must start with live?user=…)
+                          Stream Key (OBS → Stream Key — must start with stream?user=…)
                         </p>
                         {revealedObsKey ? (
                           <div className="flex flex-wrap items-start gap-2">

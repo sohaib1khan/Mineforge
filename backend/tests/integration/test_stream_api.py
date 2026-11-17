@@ -44,9 +44,9 @@ def test_stream_status_and_key_rotate(
     payload = rotated.json()
     key = payload["stream_key"]
     assert len(key) >= 32
-    assert payload["obs_stream_key"].startswith("live?user=publish&pass=")
+    assert payload["obs_stream_key"].startswith("stream?user=publish&pass=")
     assert key in payload["obs_stream_key"]
-    assert payload["rtmp_server"].endswith(":1935/")
+    assert payload["rtmp_server"].endswith(":1935/live")
     assert "pass=" in payload["rtmp_url_example"]
 
     # Internal auth: wrong token
