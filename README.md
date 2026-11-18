@@ -68,6 +68,41 @@ Copy `deploy/.env.example` → `deploy/.env`. Never commit `.env`.
 | `MINEFORGE_BEDROCK_CONTAINER` | Docker container name MineForge controls (default `bedrock`) |
 | `BEDROCK_VERSION` | Pin a version when using the compose Bedrock profile |
 
+## Adding a world (keeps existing ones)
+
+Worlds and add-ons are different. Your current worlds stay on disk; a new world is just another folder under Bedrock `/data/worlds`. Switching later is what changes which one is live.
+
+### Create an empty world (admin)
+
+1. Sign in as admin → **Worlds**.
+2. Under **New world**, type a display name → **Create**.
+3. The new world appears in the list beside your existing ones (it is **not** active yet).
+4. Tap **Switch** on it when you want Bedrock to load that world. MineForge backs up the current world first, then walks the switch steps on screen.
+
+### Import a saved world (admin)
+
+1. Get a **`.mcworld`** (or zip of a Bedrock world folder) — from your device export, a friend, or a *worlds* download (not a “mod”).
+2. **Worlds** → **Import .mcworld** → pick the file.
+3. It shows up next to your other worlds. Tap **Switch** when you want to play it.
+
+### MCPEDL / “mods” (usually add-ons, not worlds)
+
+Sites like [MCPEDL mods](https://mcpedl.com/category/mods/modpe/) are almost always **behavior/resource packs** (`.mcaddon` / `.mcpack`), not worlds.
+
+| What you downloaded | Where in MineForge | What it does |
+|---|---|---|
+| `.mcworld` / world zip | **Worlds** → Import | Adds another world folder; switch to play it |
+| `.mcaddon` / `.mcpack` | **Add-ons** → Upload | Pack library; enable on a world, then Apply |
+| “ModPE” / script mods for old clients | Not supported | Dedicated Bedrock server uses packs, not ModPE |
+
+Add-on flow (not the same as creating a world):
+
+1. **Add-ons** → upload the `.mcaddon` / `.mcpack`.
+2. Open the world profile → enable the packs → **Save profile**.
+3. **Apply** (or **Test**) so Bedrock picks them up. Prefer applying while on that world, or switch to it after apply.
+
+More detail: [User guide — Worlds](./docs/user-guide.md#worlds-switch-here) and [Add-ons](./docs/user-guide.md#add-ons-admin-manage-everyone-can-view).
+
 ## Docs
 
 - [User guide](./docs/user-guide.md)

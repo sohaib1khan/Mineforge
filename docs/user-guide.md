@@ -45,6 +45,17 @@
 - Admins can create, import `.mcworld`, export, rename, clone, and delete (not the active world).
 - If you run Bedrock via itzg separately: do **not** set `LEVEL_NAME` (or `GAMEMODE` / `DIFFICULTY`) in that container’s env — itzg will overwrite `server.properties` on every start and undo switches.
 
+### Add a world without losing the others
+
+Creating or importing only **adds** a folder. Existing worlds stay put until you delete one.
+
+1. **Create (empty):** admin → **Worlds** → type a name under **New world** → **Create**. It appears in the list, inactive.
+2. **Import:** admin → **Worlds** → **Import .mcworld** (or a zip of a Bedrock world). Same result: new row beside the others.
+3. **Play it:** tap **Switch** on that world and follow Review → Players → Confirm. Watch the progress drawer (backup → stop → set world → start → healthy).
+4. **Optional:** Clone an existing world if you want a copy to experiment on.
+
+**Not the same as add-ons:** MCPEDL “mods” / ModPE pages are usually `.mcaddon` / `.mcpack` → use **Add-ons**, not Worlds. Only `.mcworld` (or a world folder zip) belongs under Worlds.
+
 ## Stream (OBS live)
 
 - Open **Stream** to watch when the admin is live (logged-in users only).

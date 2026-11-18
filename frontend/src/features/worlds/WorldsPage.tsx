@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 
+import { Icon, Icons } from "../../components/icons";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -111,46 +112,66 @@ export function WorldsPage() {
   return (
     <section className="space-y-6">
       <div className="space-y-2">
-        <h1 className="font-pixel text-2xl text-text">Worlds</h1>
+        <h1 className="font-pixel text-2xl text-text inline-flex items-center gap-2">
+          <Icon icon={Icons.Worlds} size={22} className="text-primary" />
+          Worlds
+        </h1>
         <p className="max-w-xl text-muted leading-relaxed">
-          This is where you switch worlds. Tap <strong>Switch</strong> on any non-active
-          world — MineForge backs up the current one and rolls back automatically if the
-          new world fails to start.
+          Create or import adds a world <strong>next to</strong> your existing ones. Tap{" "}
+          <strong>Switch</strong> when you want Bedrock to load it — MineForge backs up
+          the current world first and rolls back if startup fails. Packs/mods from sites
+          like MCPEDL go under <strong>Add-ons</strong>, not here.
         </p>
       </div>
 
       {isAdmin ? (
-        <div className="flex flex-wrap items-end gap-3">
-          <Input
-            label="New world"
-            value={createName}
-            onChange={(e) => setCreateName(e.target.value)}
-            placeholder="Display name"
-          />
-          <Button
-            onClick={() => createMutation.mutate()}
-            disabled={!createName.trim() || createMutation.isPending}
-          >
-            Create
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => fileRef.current?.click()}
-            disabled={importMutation.isPending}
-          >
-            Import .mcworld
-          </Button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".mcworld,.zip"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) importMutation.mutate(file);
-              e.target.value = "";
-            }}
-          />
+        <div className="mf-card space-y-4 p-4">
+          <div className="space-y-1">
+            <h2 className="text-sm font-medium text-text inline-flex items-center gap-2">
+              <Icon icon={Icons.Status} size={16} className="text-primary" />
+              Add a world
+            </h2>
+            <p className="text-xs text-muted">
+              Create an empty world, or import a <code>.mcworld</code>. Neither removes
+              your current worlds.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <Input
+              label="New world"
+              value={createName}
+              onChange={(e) => setCreateName(e.target.value)}
+              placeholder="Display name"
+            />
+            <Button
+              className="gap-2"
+              onClick={() => createMutation.mutate()}
+              disabled={!createName.trim() || createMutation.isPending}
+            >
+              <Icon icon={Icons.Worlds} size={16} />
+              {createMutation.isPending ? "Creating…" : "Create world"}
+            </Button>
+            <Button
+              variant="secondary"
+              className="gap-2"
+              onClick={() => fileRef.current?.click()}
+              disabled={importMutation.isPending}
+            >
+              <Icon icon={Icons.Packs} size={16} />
+              {importMutation.isPending ? "Importing…" : "Import .mcworld"}
+            </Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".mcworld,.zip"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) importMutation.mutate(file);
+                e.target.value = "";
+              }}
+            />
+          </div>
         </div>
       ) : null}
 
