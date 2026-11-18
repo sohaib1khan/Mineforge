@@ -79,6 +79,8 @@ Worlds and add-ons are different. Your current worlds stay on disk; a new world 
 3. The new world appears in the list beside your existing ones (it is **not** active yet).
 4. Tap **Switch** on it when you want Bedrock to load that world. MineForge backs up the current world first, then walks the switch steps on screen.
 
+To wipe progress on an existing world without deleting it: admin → **Worlds** → **Reset** on that card. MineForge backs up first, clears the folder, keeps the name/add-on profile, and regenerates a fresh world.
+
 ### Import a saved world (admin)
 
 1. Get a **`.mcworld`** (or zip of a Bedrock world folder) — from your device export, a friend, or a *worlds* download (not a “mod”).

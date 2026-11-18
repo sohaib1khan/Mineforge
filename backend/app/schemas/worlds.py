@@ -64,6 +64,10 @@ class SwitchStartResponse(BaseModel):
     operation: OperationResponse
 
 
+class WorldResetResponse(BaseModel):
+    operation: OperationResponse
+
+
 class SwitchConsentResponse(BaseModel):
     id: str
     target_world_id: int

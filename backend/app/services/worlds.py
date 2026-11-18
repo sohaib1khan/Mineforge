@@ -1,4 +1,4 @@
-"""World library: scan, create, import, export, rename, clone, delete."""
+"""World library: scan, create, import, export, rename, clone, delete, reset."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,8 +17,11 @@ from sqlmodel import Session, select
 
 from app.core.config import Settings
 from app.core.errors import AppError, ForbiddenError, NotFoundError
+from app.models.backup import BackupKind
+from app.models.operation import OperationType
 from app.models.user import UserRole
 from app.models.world import World
+from app.services import operations as ops
 from app.services import server_props
 from app.services.archive_safety import (
     copy_tree,
@@ -25,6 +29,7 @@ from app.services.archive_safety import (
     extract_zip_safe,
 )
 from app.services.audit import record_audit
+from app.services.docker_client import get_docker_client
 from app.services.paths import resolve_under
 
 logger = logging.getLogger(__name__)
@@ -565,7 +570,6 @@ def delete_world(
     if take_backup and path.is_dir():
         try:
             validate_world_folder(path)
-            from app.models.backup import BackupKind
             from app.services import backups as backup_service
 
             backup_service.create_backup_sync(
@@ -590,6 +594,201 @@ def delete_world(
     session.commit()
     if path.is_dir():
         shutil.rmtree(path)
+
+
+def reset_world(
+    session: Session,
+    settings: Settings,
+    *,
+    world_id: int,
+    user_id: int,
+    role: UserRole,
+    ip: str | None,
+) -> dict[str, Any]:
+    """Queue a reset that wipes world files after a safety backup (admin).
+
+    Keeps the same world row / folder name / add-on profile. Bedrock regenerates
+    level data on the next start (immediately if this world is active).
+    """
+
+    _require_admin(role)
+    world = get_world(session, world_id)
+    folder = world.folder_name
+    path = world_path(settings, folder)
+    if path.exists() and not path.is_dir():
+        raise AppError(f"World path is not a directory: {folder}")
+
+    docker = get_docker_client(settings)
+    was_running = bool(docker.status().running)
+    is_active = bool(world.is_active)
+
+    op = ops.create_operation(
+        session,
+        op_type=OperationType.WORLD_RESET,
+        params={
+            "world_id": world.id,
+            "folder": folder,
+            "was_active": is_active,
+            "was_running": was_running,
+        },
+        started_by=user_id,
+    )
+    record_audit(
+        session,
+        action="world.reset_start",
+        user_id=user_id,
+        target=folder,
+        details={"operation_id": op.id, "active": is_active},
+        ip=ip,
+    )
+    session.commit()
+    operation_id = op.id
+    assert operation_id is not None
+    wid = world.id
+    assert wid is not None
+    seed = world.seed
+    gamemode = world.gamemode
+    difficulty = world.difficulty
+
+    def work(worker_session: Session, oid: int) -> None:
+        _run_world_reset(
+            worker_session,
+            settings,
+            operation_id=oid,
+            world_id=wid,
+            folder=folder,
+            is_active=is_active,
+            was_running=was_running,
+            seed=seed,
+            gamemode=gamemode,
+            difficulty=difficulty,
+            started_by=user_id,
+        )
+
+    ops.run_in_background(operation_id, work)
+    return ops.operation_to_dict(ops.get_operation(session, operation_id))
+
+
+def _run_world_reset(
+    session: Session,
+    settings: Settings,
+    *,
+    operation_id: int,
+    world_id: int,
+    folder: str,
+    is_active: bool,
+    was_running: bool,
+    seed: str | None,
+    gamemode: str | None,
+    difficulty: str | None,
+    started_by: int | None,
+) -> None:
+    """Backup, wipe, recreate empty world folder; restart if it was active."""
+
+    from app.services import backups as backup_service
+
+    path = world_path(settings, folder)
+    docker = get_docker_client(settings)
+    ops.append_log(session, operation_id, f"Resetting world {folder}")
+
+    if path.is_dir() and (path / "level.dat").is_file():
+        ops.append_log(session, operation_id, f"Pre-reset backup of {folder}")
+        backup_service.create_backup_sync(
+            session,
+            settings,
+            world_id=world_id,
+            world_folder=folder,
+            kind=BackupKind.PRE_RESET,
+            created_by=started_by,
+            operation_id=operation_id,
+        )
+    else:
+        ops.append_log(
+            session, operation_id, "No level.dat yet — skipping pre-reset backup"
+        )
+
+    if is_active and was_running:
+        ops.append_log(session, operation_id, "Stopping Bedrock for active reset")
+        try:
+            from app.services import console as console_service
+
+            console_service.send_command(settings, "stop", actor="world_reset")
+            time.sleep(2)
+        except Exception:
+            pass
+        docker.stop(timeout=45)
+
+    ops.append_log(session, operation_id, "Wiping world files")
+    _recreate_empty_world_folder(
+        settings,
+        path,
+        seed=seed,
+        gamemode=gamemode,
+        difficulty=difficulty,
+    )
+
+    world = get_world(session, world_id)
+    world.size_bytes = dir_size(path) if path.is_dir() else 0
+    world.seed = seed
+    world.needs_experiments = False
+    session.add(world)
+    session.commit()
+
+    if is_active:
+        ops.append_log(
+            session, operation_id, "Starting Bedrock to generate fresh world"
+        )
+        docker.start()
+        from app.services.switch import backup_service_wait_healthy
+
+        backup_service_wait_healthy(settings, session, operation_id)
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            if (path / "level.dat").is_file():
+                break
+            time.sleep(1)
+        world = get_world(session, world_id)
+        world.size_bytes = dir_size(path) if path.is_dir() else 0
+        world.last_played_at = datetime.now(UTC)
+        session.add(world)
+        session.commit()
+    elif was_running and not is_active:
+        # Inactive reset should not have stopped the server.
+        pass
+
+    record_audit(
+        session,
+        action="world.reset_success",
+        user_id=started_by,
+        target=folder,
+        details={"operation_id": operation_id},
+    )
+    session.commit()
+    ops.append_log(session, operation_id, f"Reset complete for {folder}")
+
+
+def _recreate_empty_world_folder(
+    settings: Settings,
+    path: Path,
+    *,
+    seed: str | None,
+    gamemode: str | None,
+    difficulty: str | None,
+) -> None:
+    """Remove existing world contents and leave a create-style placeholder."""
+
+    if path.exists():
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+    path.mkdir(parents=True, exist_ok=False)
+    (path / "db").mkdir()
+    (path / ".mineforge-new").write_text(
+        f"seed={seed or ''}\ngamemode={gamemode or ''}\ndifficulty={difficulty or ''}\n",
+        encoding="utf-8",
+    )
+    _chown_tree(path, settings.bedrock_uid, settings.bedrock_gid)
 
 
 def _find_world_root(extracted: Path) -> Path:

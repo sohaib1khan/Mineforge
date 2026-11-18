@@ -13,6 +13,7 @@ class BackupKind(StrEnum):
     MANUAL = "manual"
     PRE_SWITCH = "pre_switch"
     PRE_RESTORE = "pre_restore"
+    PRE_RESET = "pre_reset"
     PRE_ADDON = "pre_addon"
 
 

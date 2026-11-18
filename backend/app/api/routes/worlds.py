@@ -30,6 +30,7 @@ from app.schemas.worlds import (
     WorldImportResponse,
     WorldListResponse,
     WorldRenameRequest,
+    WorldResetResponse,
     WorldResponse,
 )
 from app.services import switch as switch_service
@@ -162,6 +163,27 @@ def rename_world(
         ip=get_client_ip(request),
     )
     return _world(settings, world)
+
+
+@router.post("/{world_id}/reset", response_model=WorldResetResponse)
+def reset_world(
+    world_id: int,
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    auth: AdminCsrfDep,
+) -> WorldResetResponse:
+    """Wipe world files after a safety backup; keeps the world entry (admin)."""
+
+    operation = worlds_service.reset_world(
+        session,
+        settings,
+        world_id=world_id,
+        user_id=auth.user.id,  # type: ignore[arg-type]
+        role=auth.user.role,
+        ip=get_client_ip(request),
+    )
+    return WorldResetResponse(operation=OperationResponse.model_validate(operation))
 
 
 @router.post("/{world_id}/clone", response_model=WorldResponse)

@@ -60,6 +60,35 @@ const SWITCH_STEPS: StepDef[] = [
   },
 ];
 
+const RESET_STEPS: StepDef[] = [
+  {
+    id: "backup",
+    label: "Pre-reset backup",
+    match: (l) => /pre-reset backup|skipping pre-reset backup/i.test(l),
+  },
+  {
+    id: "stop",
+    label: "Stop Bedrock",
+    match: (l) => /stopping bedrock/i.test(l),
+  },
+  {
+    id: "wipe",
+    label: "Wipe world files",
+    match: (l) => /wiping world files/i.test(l),
+  },
+  {
+    id: "start",
+    label: "Regenerate world",
+    match: (l) =>
+      /starting bedrock|waiting for server health|healthy|generate/i.test(l),
+  },
+  {
+    id: "done",
+    label: "Reset complete",
+    match: (l) => /reset complete/i.test(l),
+  },
+];
+
 const BACKUP_STEPS: StepDef[] = [
   {
     id: "hold",
@@ -90,6 +119,8 @@ function defsForType(type: string | undefined): StepDef[] {
   switch (type) {
     case "switch":
       return SWITCH_STEPS;
+    case "world_reset":
+      return RESET_STEPS;
     case "backup":
     case "addon_backup":
       return BACKUP_STEPS;
@@ -174,6 +205,8 @@ export function operationTitle(type: string | undefined): string {
   switch (type) {
     case "switch":
       return "Switching world";
+    case "world_reset":
+      return "Resetting world";
     case "backup":
       return "Creating backup";
     case "restore":

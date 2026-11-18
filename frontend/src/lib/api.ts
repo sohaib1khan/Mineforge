@@ -475,6 +475,16 @@ export async function deleteWorld(worldId: number): Promise<MessageResponse> {
   );
 }
 
+export async function resetWorld(
+  worldId: number,
+): Promise<{ operation: OperationResponse }> {
+  return request<{ operation: OperationResponse }>(
+    `/api/worlds/${worldId}/reset`,
+    { method: "POST", body: JSON.stringify({}) },
+    { csrf: true },
+  );
+}
+
 export async function importWorld(input: {
   file: File;
   display_name?: string;

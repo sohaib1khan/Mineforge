@@ -14,6 +14,7 @@ import {
   fetchWorlds,
   importWorld,
   renameWorld,
+  resetWorld,
 } from "../../lib/api";
 import type { WorldResponse } from "../../lib/types";
 import { useAuth } from "../auth/AuthContext";
@@ -100,6 +101,19 @@ export function WorldsPage() {
       setError(null);
       toast.push("World deleted.", "success");
       refresh();
+    },
+    onError: (err: Error) => {
+      setError(err.message);
+      toast.push(err.message, "error");
+    },
+  });
+
+  const resetMutation = useMutation({
+    mutationFn: resetWorld,
+    onSuccess: (data) => {
+      setError(null);
+      setOperationId(data.operation.id);
+      toast.push("World reset started. A backup is taken first.", "info");
     },
     onError: (err: Error) => {
       setError(err.message);
@@ -265,6 +279,27 @@ export function WorldsPage() {
                     >
                       Export
                     </a>
+                    <Button
+                      variant="secondary"
+                      disabled={resetMutation.isPending}
+                      onClick={() => {
+                        const activeNote = w.is_active
+                          ? " This is the ACTIVE world — Bedrock will stop, wipe, and regenerate it."
+                          : "";
+                        if (
+                          window.confirm(
+                            `Reset "${w.display_name}" to a fresh empty world?` +
+                              ` A backup is taken first when level.dat exists.` +
+                              ` The world name, folder, and add-on profile are kept.` +
+                              activeNote,
+                          )
+                        ) {
+                          resetMutation.mutate(w.id);
+                        }
+                      }}
+                    >
+                      Reset
+                    </Button>
                     {!w.is_active ? (
                       <Button
                         variant="danger"

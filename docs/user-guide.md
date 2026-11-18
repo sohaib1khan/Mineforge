@@ -42,7 +42,8 @@
 - MineForge warns in-game, backs up the current world, stops Bedrock, changes `level-name`, starts, and health-checks.
 - If the new world fails to come up, it rolls back automatically.
 - While other players are online, either everyone approves (2 minutes) or an admin **Force switch**.
-- Admins can create, import `.mcworld`, export, rename, clone, and delete (not the active world).
+- Admins can create, import `.mcworld`, export, rename, clone, **reset**, and delete (not the active world for delete).
+- **Reset** wipes the world folder after a safety backup, keeps the same name/folder/add-on profile, and lets Bedrock generate a fresh world (restarts immediately if that world is active).
 - If you run Bedrock via itzg separately: do **not** set `LEVEL_NAME` (or `GAMEMODE` / `DIFFICULTY`) in that container’s env — itzg will overwrite `server.properties` on every start and undo switches.
 
 ### Add a world without losing the others

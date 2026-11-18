@@ -14,6 +14,7 @@ class OperationType(StrEnum):
     SWITCH = "switch"
     BACKUP = "backup"
     RESTORE = "restore"
+    WORLD_RESET = "world_reset"
     ADDON_APPLY = "addon_apply"
     ADDON_TEST = "addon_test"
     ADDON_BACKUP = "addon_backup"
