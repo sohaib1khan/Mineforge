@@ -64,6 +64,7 @@ export function AddonsPage() {
   const toast = useToast();
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
+  const selectAllRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"library" | "world">("library");
   const [worldId, setWorldId] = useState<number | null>(null);
@@ -219,6 +220,31 @@ export function AddonsPage() {
       ];
     });
   }
+
+  function selectAllPacks() {
+    setDraft(
+      addons.map((addon, index) => ({
+        addon_id: addon.id,
+        enabled: true,
+        load_order: index,
+        addon,
+      })),
+    );
+  }
+
+  function deselectAllPacks() {
+    setDraft([]);
+  }
+
+  const enabledCount = draft.filter((e) => e.enabled).length;
+  const allSelected = addons.length > 0 && enabledCount === addons.length;
+  const noneSelected = enabledCount === 0;
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = !allSelected && !noneSelected;
+    }
+  }, [allSelected, noneSelected]);
 
   function loadProfile(id: number) {
     setWorldId(id);
@@ -487,10 +513,47 @@ export function AddonsPage() {
               <p className="text-sm text-muted">
                 Download size:{" "}
                 {formatBytes(profileQuery.data?.download_size.enabled_pack_bytes ?? 0)}{" "}
-                ({profileQuery.data?.download_size.enabled_pack_count ?? draft.length}{" "}
+                ({profileQuery.data?.download_size.enabled_pack_count ?? enabledCount}{" "}
                 packs)
               </p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-muted">
+                  Selected {enabledCount}/{addons.length}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={selectAllPacks}
+                    disabled={allSelected || addons.length === 0}
+                  >
+                    Select all
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={deselectAllPacks}
+                    disabled={noneSelected}
+                  >
+                    Deselect all
+                  </Button>
+                </div>
+              </div>
               <div className="max-h-[min(50vh,28rem)] overflow-y-auto rounded-md border border-border p-3">
+                <div className="mb-3 flex items-center gap-3 border-b border-border pb-2 text-sm">
+                  <input
+                    ref={selectAllRef}
+                    type="checkbox"
+                    id="addon-select-all"
+                    checked={allSelected}
+                    onChange={() => {
+                      if (allSelected) deselectAllPacks();
+                      else selectAllPacks();
+                    }}
+                    disabled={addons.length === 0}
+                  />
+                  <label htmlFor="addon-select-all" className="font-medium text-text">
+                    {allSelected ? "Deselect all packs" : "Select all packs"}
+                  </label>
+                </div>
                 <ul className="space-y-2">
                   {addons.map((a) => {
                     const on = draft.some((e) => e.addon_id === a.id && e.enabled);
