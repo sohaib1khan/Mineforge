@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
+import { Icon, Icons } from "../../components/icons";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
@@ -24,6 +25,7 @@ import {
 } from "../../lib/api";
 import type { NetworkStatusResponse } from "../../lib/types";
 import { useAuth } from "../auth/AuthContext";
+import { ContainerActivity } from "./ContainerActivity";
 
 export function ServerPage() {
   const { user } = useAuth();
@@ -116,28 +118,37 @@ export function ServerPage() {
   return (
     <section className="space-y-8">
       <div className="space-y-1">
-        <h1 className="font-pixel text-2xl">Server</h1>
+        <h1 className="font-pixel text-2xl inline-flex items-center gap-2">
+          <Icon icon={Icons.Server} size={22} className="text-primary" />
+          Server
+        </h1>
         <p className="text-sm text-muted">
-          Status:{" "}
-          <span className="text-text">{statusQuery.data?.container.status ?? "…"}</span>
-          {statusQuery.data?.container.image
-            ? ` · ${statusQuery.data.container.image}`
-            : ""}
+          Live Docker + Bedrock view for{" "}
+          <span className="text-text">
+            {statusQuery.data?.container.name ?? "bedrock"}
+          </span>
+          . Polls about every 8s while this page is open.
         </p>
       </div>
 
+      <ContainerActivity status={statusQuery.data} loading={statusQuery.isLoading} />
+
       <div className="flex flex-wrap gap-2">
         <Button
+          className="gap-2"
           disabled={actionMutation.isPending || running}
           onClick={() => actionMutation.mutate("start")}
         >
+          <Icon icon={Icons.Status} size={16} />
           Start
         </Button>
         <Button
           variant="secondary"
+          className="gap-2"
           disabled={actionMutation.isPending || !running}
           onClick={() => actionMutation.mutate("stop")}
         >
+          <Icon icon={Icons.Offline} size={16} />
           Stop
         </Button>
         <Button

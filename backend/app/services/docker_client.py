@@ -50,6 +50,46 @@ class ContainerStatsSample:
 
 
 @dataclass
+class ContainerPortBinding:
+    private: str
+    public: str | None
+
+
+@dataclass
+class ContainerMountInfo:
+    destination: str
+    mode: str
+    type: str
+
+
+@dataclass
+class ContainerRuntimeSnapshot:
+    """Richer inspect + live stats for the Bedrock container panel."""
+
+    name: str
+    exists: bool = False
+    running: bool = False
+    status: str = "missing"
+    image: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    created_at: datetime | None = None
+    exit_code: int | None = None
+    pid: int | None = None
+    restart_count: int = 0
+    oom_killed: bool = False
+    error: str | None = None
+    health: str | None = None
+    restart_policy: str | None = None
+    platform: str | None = None
+    ports: list[ContainerPortBinding] | None = None
+    mounts: list[ContainerMountInfo] | None = None
+    safe_env: dict[str, str] | None = None
+    level_name_env: str | None = None
+    stats: ContainerStatsSample | None = None
+
+
+@dataclass
 class ContainerVersionInfo:
     """Bedrock image / VERSION env hints for the Server page."""
 
@@ -59,12 +99,40 @@ class ContainerVersionInfo:
     guidance: str
 
 
+# Env keys safe to show to authenticated panel users (no secrets).
+_SAFE_ENV_KEYS = frozenset(
+    {
+        "VERSION",
+        "EULA",
+        "SERVER_NAME",
+        "GAMEMODE",
+        "DIFFICULTY",
+        "LEVEL_NAME",
+        "LEVEL_TYPE",
+        "ALLOW_LIST",
+        "ALLOWLIST",
+        "WHITE_LIST",
+        "WHITELIST",
+        "ONLINE_MODE",
+        "MAX_PLAYERS",
+        "VIEW_DISTANCE",
+        "TICK_DISTANCE",
+        "UID",
+        "GID",
+        "TZ",
+        "TYPE",
+    }
+)
+
+
 class BedrockDocker(Protocol):
     """Protocol so tests can inject a fake client."""
 
     def status(self) -> ContainerStatus: ...
 
     def sample_stats(self) -> ContainerStatsSample: ...
+
+    def runtime_snapshot(self) -> ContainerRuntimeSnapshot: ...
 
     def version_info(self) -> ContainerVersionInfo: ...
 
@@ -79,6 +147,141 @@ class BedrockDocker(Protocol):
     def follow_logs(
         self, since: datetime | None = None, *, tail: int | None = None
     ) -> Any: ...
+
+
+def filter_safe_env(env_list: list[Any]) -> dict[str, str]:
+    """Keep only non-secret Bedrock-related environment variables."""
+
+    out: dict[str, str] = {}
+    for entry in env_list:
+        if not isinstance(entry, str) or "=" not in entry:
+            continue
+        key, value = entry.split("=", 1)
+        upper = key.strip().upper()
+        if upper not in _SAFE_ENV_KEYS:
+            continue
+        if any(bad in upper for bad in ("PASS", "SECRET", "TOKEN", "KEY", "PWD")):
+            continue
+        out[key.strip()] = value
+    return out
+
+
+def parse_runtime_attrs(
+    *,
+    name: str,
+    attrs: dict[str, Any],
+    image: str | None,
+) -> ContainerRuntimeSnapshot:
+    """Build a runtime snapshot from a Docker inspect attrs dict."""
+
+    state = attrs.get("State") or {}
+    host = attrs.get("HostConfig") or {}
+    config = attrs.get("Config") or {}
+    network = attrs.get("NetworkSettings") or {}
+
+    started_at = _parse_docker_time(state.get("StartedAt"))
+    finished_at = _parse_docker_time(state.get("FinishedAt"))
+    created_at = _parse_docker_time(attrs.get("Created"))
+
+    health = None
+    health_block = state.get("Health")
+    if isinstance(health_block, dict):
+        health = str(health_block.get("Status") or "") or None
+
+    restart_policy = None
+    policy = host.get("RestartPolicy")
+    if isinstance(policy, dict):
+        restart_policy = str(policy.get("Name") or "") or None
+
+    ports: list[ContainerPortBinding] = []
+    raw_ports = network.get("Ports") or {}
+    if isinstance(raw_ports, dict):
+        for private, bindings in raw_ports.items():
+            private_s = str(private)
+            if not bindings:
+                ports.append(ContainerPortBinding(private=private_s, public=None))
+                continue
+            if not isinstance(bindings, list):
+                continue
+            for bind in bindings:
+                if not isinstance(bind, dict):
+                    continue
+                ip = bind.get("HostIp") or "0.0.0.0"
+                port = bind.get("HostPort") or ""
+                public = f"{ip}:{port}" if port else None
+                ports.append(ContainerPortBinding(private=private_s, public=public))
+
+    mounts: list[ContainerMountInfo] = []
+    for mount in attrs.get("Mounts") or []:
+        if not isinstance(mount, dict):
+            continue
+        dest = str(mount.get("Destination") or "")
+        if not dest:
+            continue
+        mounts.append(
+            ContainerMountInfo(
+                destination=dest,
+                mode=str(mount.get("Mode") or mount.get("RW") or ""),
+                type=str(mount.get("Type") or ""),
+            )
+        )
+
+    safe_env = filter_safe_env(list(config.get("Env") or []))
+    level_name_env = safe_env.get("LEVEL_NAME") or safe_env.get("Level_Name")
+
+    pid_raw = state.get("Pid")
+    pid = int(pid_raw) if isinstance(pid_raw, int) and pid_raw > 0 else None
+    restart_raw = attrs.get("RestartCount")
+    restart_count = int(restart_raw) if isinstance(restart_raw, int) else 0
+
+    return ContainerRuntimeSnapshot(
+        name=name,
+        exists=True,
+        running=bool(state.get("Running")),
+        status=str(state.get("Status") or "unknown"),
+        image=image,
+        started_at=started_at,
+        finished_at=finished_at,
+        created_at=created_at,
+        exit_code=state.get("ExitCode"),
+        pid=pid,
+        restart_count=restart_count,
+        oom_killed=bool(state.get("OOMKilled")),
+        error=(str(state.get("Error")).strip() or None) if state.get("Error") else None,
+        health=health,
+        restart_policy=restart_policy,
+        platform=str(attrs.get("Platform") or "") or None,
+        ports=ports,
+        mounts=mounts,
+        safe_env=safe_env,
+        level_name_env=level_name_env,
+        stats=None,
+    )
+
+
+def _parse_docker_time(raw: Any) -> datetime | None:
+    if not raw or raw in {"0001-01-01T00:00:00Z", "0001-01-01T00:00:00.000000000Z", ""}:
+        return None
+    if not isinstance(raw, str):
+        return None
+    try:
+        # Docker sometimes returns nanoseconds; fromisoformat wants <=6 digits.
+        cleaned = raw.replace("Z", "+00:00")
+        if "." in cleaned:
+            head, rest = cleaned.split(".", 1)
+            frac = ""
+            tz = ""
+            for i, ch in enumerate(rest):
+                if ch.isdigit():
+                    frac += ch
+                else:
+                    tz = rest[i:]
+                    break
+            frac = (frac + "000000")[:6]
+            cleaned = f"{head}.{frac}{tz}"
+        return datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
 
 
 def parse_docker_stats(raw: dict[str, Any]) -> ContainerStatsSample:
@@ -230,6 +433,49 @@ class DockerSdkClient:
             image=image,
             exit_code=state.get("ExitCode"),
         )
+
+    def runtime_snapshot(self) -> ContainerRuntimeSnapshot:
+        """Inspect + live stats for the container activity panel."""
+
+        try:
+            container = self._get_container()
+        except NotFoundError:
+            return ContainerRuntimeSnapshot(
+                name=self._container_name,
+                exists=False,
+                running=False,
+                status="missing",
+            )
+        except DockerUnavailableError:
+            return ContainerRuntimeSnapshot(
+                name=self._container_name,
+                exists=False,
+                running=False,
+                status="unavailable",
+            )
+
+        try:
+            container.reload()
+        except DockerException:
+            pass
+
+        image = None
+        try:
+            image = (
+                container.image.tags[0] if container.image.tags else container.image.id
+            )
+        except DockerException:
+            image = None
+
+        attrs = container.attrs if isinstance(container.attrs, dict) else {}
+        snap = parse_runtime_attrs(name=self._container_name, attrs=attrs, image=image)
+        if snap.running:
+            try:
+                snap.stats = self.sample_stats()
+            except Exception:
+                logger.exception("runtime stats sample failed")
+                snap.stats = None
+        return snap
 
     def version_info(self) -> ContainerVersionInfo:
         """Return image tag and VERSION env from the Bedrock container."""

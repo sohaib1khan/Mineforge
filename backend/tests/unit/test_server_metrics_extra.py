@@ -14,6 +14,7 @@ from app.services import metrics as metrics_service
 from app.services import network as network_service
 from app.services import server as server_service
 from app.services.docker_client import (
+    ContainerRuntimeSnapshot,
     ContainerStatsSample,
     ContainerStatus,
     ContainerVersionInfo,
@@ -38,6 +39,20 @@ class _FakeDocker:
 
     def sample_stats(self) -> ContainerStatsSample:
         return ContainerStatsSample(1.0, 10, 100, 1, 2, self.running)
+
+    def runtime_snapshot(self) -> ContainerRuntimeSnapshot:
+        return ContainerRuntimeSnapshot(
+            name="bedrock",
+            exists=True,
+            running=self.running,
+            status="running" if self.running else "exited",
+            image="itzg/minecraft-bedrock-server:test",
+            started_at=datetime.now(UTC),
+            exit_code=0,
+            health="healthy" if self.running else None,
+            safe_env={"VERSION": "1.21.0"},
+            stats=self.sample_stats() if self.running else None,
+        )
 
     def version_info(self) -> ContainerVersionInfo:
         return ContainerVersionInfo("img", "1.21.0", True, "ok")
@@ -79,6 +94,51 @@ def test_server_start_stop_restart(admin_user, app_data_dir: Path) -> None:
             assert fake.running is True
             status = server_service.get_status(session, settings)
             assert status["container"]["exists"] is True
+            assert status["resources"] is not None
+            assert status["resources"]["cpu_pct"] == 1.0
+            assert status["safe_env"]["VERSION"] == "1.21.0"
+    finally:
+        set_docker_client_override(None)
+
+
+def test_server_status_warns_on_level_name_env_and_oom(
+    admin_user, app_data_dir: Path
+) -> None:
+    class _WarnDocker(_FakeDocker):
+        def runtime_snapshot(self) -> ContainerRuntimeSnapshot:
+            return ContainerRuntimeSnapshot(
+                name="bedrock",
+                exists=True,
+                running=True,
+                status="running",
+                image="itzg/minecraft-bedrock-server:test",
+                started_at=datetime.now(UTC),
+                exit_code=0,
+                oom_killed=True,
+                error="engine error",
+                health="unhealthy",
+                level_name_env="OldWorld",
+                safe_env={"LEVEL_NAME": "OldWorld", "VERSION": "1.21.0"},
+                stats=self.sample_stats(),
+            )
+
+    data = app_data_dir.parent / "data"
+    data.mkdir(exist_ok=True)
+    (data / "server.properties").write_text(
+        "level-name=TestWorld\ngamemode=survival\n", encoding="utf-8"
+    )
+    fake = _WarnDocker()
+    set_docker_client_override(fake)
+    try:
+        with Session(get_engine()) as session:
+            status = server_service.get_status(session, get_settings())
+            assert status["container"]["oom_killed"] is True
+            assert status["container"]["health"] == "unhealthy"
+            joined = " ".join(status["warnings"])
+            assert "OOM" in joined
+            assert "LEVEL_NAME" in joined
+            assert "unhealthy" in joined.lower()
+            assert "engine error" in joined
     finally:
         set_docker_client_override(None)
 

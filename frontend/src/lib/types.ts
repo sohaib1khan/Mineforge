@@ -28,6 +28,15 @@ export type UserListResponse = {
   users: UserPublic[];
 };
 
+export type ContainerResources = {
+  cpu_pct: number;
+  mem_bytes: number;
+  mem_limit_bytes: number;
+  mem_pct: number | null;
+  net_rx_bytes: number;
+  net_tx_bytes: number;
+};
+
 export type ServerStatusResponse = {
   container: {
     name: string;
@@ -37,7 +46,23 @@ export type ServerStatusResponse = {
     image: string | null;
     started_at: string | null;
     uptime_seconds: number | null;
+    finished_at: string | null;
+    created_at: string | null;
+    exit_code: number | null;
+    pid: number | null;
+    restart_count: number;
+    oom_killed: boolean;
+    error: string | null;
+    health: string | null;
+    restart_policy: string | null;
+    platform: string | null;
   };
+  resources: ContainerResources | null;
+  ports: Array<{ private: string; public: string | null }>;
+  mounts: Array<{ destination: string; mode: string; type: string }>;
+  safe_env: Record<string, string>;
+  server_settings: Record<string, string>;
+  warnings: string[];
   level_name: string | null;
   players_online: Array<{
     gamertag: string;

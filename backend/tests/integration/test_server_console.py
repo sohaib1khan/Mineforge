@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from app.db.session import get_engine
 from app.models.player_session import PlayerSession
 from app.services.docker_client import (
+    ContainerRuntimeSnapshot,
     ContainerStatsSample,
     ContainerStatus,
     set_docker_client_override,
@@ -43,6 +44,25 @@ class FakeDocker:
             net_rx_bytes=1000,
             net_tx_bytes=2000,
             running=self.running,
+        )
+
+    def runtime_snapshot(self) -> ContainerRuntimeSnapshot:
+        stats = self.sample_stats()
+        return ContainerRuntimeSnapshot(
+            name="bedrock",
+            exists=True,
+            running=self.running,
+            status="running" if self.running else "exited",
+            image="itzg/minecraft-bedrock-server:test",
+            started_at=datetime.now(UTC),
+            exit_code=0,
+            pid=42 if self.running else None,
+            health="healthy" if self.running else None,
+            restart_policy="unless-stopped",
+            ports=[],
+            mounts=[],
+            safe_env={"VERSION": "1.21.0"},
+            stats=stats if self.running else None,
         )
 
     def version_info(self):

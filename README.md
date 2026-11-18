@@ -10,7 +10,7 @@ Not affiliated with Mojang or Microsoft.
 - First-run admin setup in the UI (no setup code)
 - World list + switch with pre-switch backup and countdown
 - Live world backups / restore, add-on library backup / restore, pack library, ops & allowlist editors
-- Metrics charts, NetherNet public-IP helper, in-app help guides
+- Metrics charts, live Bedrock container panel (Docker health/CPU/RAM/ports/env), NetherNet public-IP helper, in-app help guides
 - Dark/light theme, installable PWA
 
 ## Requirements

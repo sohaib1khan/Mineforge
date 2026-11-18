@@ -86,6 +86,8 @@ Creating or importing only **adds** a folder. Existing worlds stay put until you
 ## Server & console (admin)
 
 - Start/stop/restart the Bedrock container, edit safe `server.properties` keys, manage allowlist/ops.
+- **Server** and **Home** show a live Bedrock container panel (Docker status/health, uptime, CPU/RAM/network, ports, mounts, safe env keys, and live `server.properties` highlights). Polls every few seconds.
+- Warnings surface problems like OOM kills, unhealthy healthchecks, or a set `LEVEL_NAME` env that can undo world switches.
 - Live console send + stream.
 
 ## Add-ons (admin manage; everyone can view)

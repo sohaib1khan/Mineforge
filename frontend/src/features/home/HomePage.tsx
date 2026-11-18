@@ -13,6 +13,7 @@ import {
 } from "../../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { formatBytes, formatHours } from "../metrics/format";
+import { ContainerActivity } from "../server/ContainerActivity";
 
 function formatUptime(seconds: number | null): string {
   if (seconds == null) return "—";
@@ -72,6 +73,12 @@ export function HomePage() {
           </p>
         </Link>
       ) : null}
+
+      <ContainerActivity
+        status={statusQuery.data}
+        loading={statusQuery.isLoading}
+        compact
+      />
 
       <div className="grid gap-4 sm:grid-cols-3 stagger-children">
         <MetricTile icon={Icons.Status} label="Status" loading={statusQuery.isLoading}>
