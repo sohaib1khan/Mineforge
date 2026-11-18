@@ -64,6 +64,7 @@ describe("AppShell", () => {
 
     expect(await screen.findByLabelText("Main")).toBeInTheDocument();
     expect(screen.getByLabelText("Mobile")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /More/i })).toBeInTheDocument();
     expect(screen.getByText("Dashboard body")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Sohaib Khan" })).toHaveAttribute(
       "href",

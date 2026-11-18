@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import {
   Area,
@@ -12,6 +13,7 @@ import {
   YAxis,
 } from "recharts";
 
+import { Icon, Icons } from "../../components/icons";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SkeletonLines } from "../../components/ui/Skeleton";
 import { fetchMetricsOverview } from "../../lib/api";
@@ -99,7 +101,10 @@ export function MetricsPage() {
   return (
     <section className="space-y-8">
       <div className="space-y-2">
-        <h1 className="font-pixel text-2xl text-text">Metrics</h1>
+        <h1 className="font-pixel text-2xl text-text inline-flex items-center gap-2">
+          <Icon icon={Icons.Metrics} size={22} className="text-primary" />
+          Metrics
+        </h1>
         <p className="max-w-xl text-muted leading-relaxed">
           Players, playtime, and Bedrock container CPU/RAM sampled about every{" "}
           {data?.sample_interval_seconds ?? 30}s (kept {data?.retention_days ?? 30}{" "}
@@ -124,16 +129,19 @@ export function MetricsPage() {
       {summary ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
+            icon={Icons.Players}
             label="Players now"
             value={String(summary.latest.players_online)}
             hint={`Peak ${summary.peakPlayers} in window`}
           />
           <StatCard
+            icon={Icons.Cpu}
             label="CPU now"
             value={`${summary.latest.cpu_pct.toFixed(1)}%`}
             hint={`Peak ${summary.peakCpu.toFixed(1)}% · avg ${summary.avgCpu.toFixed(1)}%`}
           />
           <StatCard
+            icon={Icons.Memory}
             label="Memory now"
             value={`${summary.latest.mem_mb} MB`}
             hint={
@@ -143,6 +151,7 @@ export function MetricsPage() {
             }
           />
           <StatCard
+            icon={Icons.Login}
             label="Joins (7d)"
             value={String(joinsTotal)}
             hint={`${formatHours(playtimeTotal)} total playtime`}
@@ -413,21 +422,25 @@ export function MetricsPage() {
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard
+              icon={Icons.Packs}
               label="Packs enabled"
               value={String(data.world_insight.totals.packs ?? 0)}
               hint={`${data.world_insight.totals.behavior_packs ?? 0} BP · ${data.world_insight.totals.resource_packs ?? 0} RP`}
             />
             <StatCard
+              icon={Icons.Items}
               label="Items / entities"
               value={`${data.world_insight.totals.items ?? 0} / ${data.world_insight.totals.entities ?? 0}`}
               hint={`${data.world_insight.totals.blocks ?? 0} blocks`}
             />
             <StatCard
+              icon={Icons.Structures}
               label="Structures"
               value={String(data.world_insight.totals.structures ?? 0)}
               hint={`${data.world_insight.totals.weapon_like_items ?? 0} weapon-like items`}
             />
             <StatCard
+              icon={Icons.Seed}
               label="World DB"
               value={formatBytes(Number(data.world_insight.world?.db_bytes ?? 0))}
               hint={
@@ -578,17 +591,22 @@ function formatSpawn(spawn: unknown): string {
 }
 
 function StatCard({
+  icon,
   label,
   value,
   hint,
 }: {
+  icon: LucideIcon;
   label: string;
   value: string;
   hint: string;
 }) {
   return (
     <div className="mf-card px-4 py-3 space-y-1">
-      <p className="text-xs text-muted">{label}</p>
+      <p className="inline-flex items-center gap-2 text-xs text-muted">
+        <Icon icon={icon} size={14} className="text-primary" />
+        {label}
+      </p>
       <p className="font-pixel text-xl text-primary">{value}</p>
       <p className="text-xs text-muted">{hint}</p>
     </div>

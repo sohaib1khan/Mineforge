@@ -122,6 +122,21 @@
     box-shadow: 0 0 10px color-mix(in srgb, var(--color-primary) 55%, transparent);
     animation: mf-slide-in var(--motion-med) var(--ease-bounce) both;
   }
+
+  /* Sit above the mobile tab bar so progress / sheets are not clipped. */
+  .mf-op-drawer {
+    bottom: calc(3.75rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  @media (min-width: 768px) {
+    .mf-op-drawer {
+      bottom: 1rem;
+    }
+  }
+
+  .mf-sheet {
+    overscroll-behavior: contain;
+  }
 }
 
 @layer utilities {

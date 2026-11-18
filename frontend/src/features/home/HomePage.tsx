@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
+import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import { APP_DISPLAY_NAME } from "../../app/constants";
+import { Icon, Icons } from "../../components/icons";
 import { Skeleton } from "../../components/ui/Skeleton";
 import {
   fetchMetricsDashboard,
@@ -71,85 +74,53 @@ export function HomePage() {
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-3 stagger-children">
-        <div className="mf-card p-4">
-          <p className="text-sm text-muted">Status</p>
-          {statusQuery.isLoading ? (
-            <Skeleton className="mt-2 h-7 w-24" />
-          ) : (
-            <p
-              className={`mt-1 font-pixel text-xl inline-flex items-center gap-2 ${
-                running ? "text-primary" : ""
-              }`}
-            >
-              {running ? (
-                <span className="mf-status-pulse h-2.5 w-2.5 rounded-full bg-primary" />
-              ) : null}
-              {running
-                ? "Online"
-                : status?.container.exists
-                  ? "Offline"
-                  : "No container"}
-            </p>
-          )}
-        </div>
-        <div className="mf-card p-4">
-          <p className="text-sm text-muted">World</p>
-          {statusQuery.isLoading ? (
-            <Skeleton className="mt-2 h-7 w-32" />
-          ) : (
-            <p className="mt-1 font-pixel text-xl truncate">
-              {status?.level_name ?? "—"}
-            </p>
-          )}
-        </div>
-        <div className="mf-card p-4">
-          <p className="text-sm text-muted">Players</p>
-          {statusQuery.isLoading ? (
-            <Skeleton className="mt-2 h-7 w-16" />
-          ) : (
-            <>
-              <p className="mt-1 font-pixel text-xl">{status?.player_count ?? 0}</p>
-              <p className="text-xs text-muted mt-1">
-                Uptime {formatUptime(status?.container.uptime_seconds ?? null)}
-              </p>
-            </>
-          )}
-        </div>
+        <MetricTile icon={Icons.Status} label="Status" loading={statusQuery.isLoading}>
+          <p
+            className={`mt-1 font-pixel text-xl inline-flex items-center gap-2 ${
+              running ? "text-primary" : ""
+            }`}
+          >
+            {running ? (
+              <span className="mf-status-pulse h-2.5 w-2.5 rounded-full bg-primary" />
+            ) : null}
+            {running ? "Online" : status?.container.exists ? "Offline" : "No container"}
+          </p>
+        </MetricTile>
+        <MetricTile icon={Icons.Worlds} label="World" loading={statusQuery.isLoading}>
+          <p className="mt-1 font-pixel text-xl truncate">
+            {status?.level_name ?? "—"}
+          </p>
+        </MetricTile>
+        <MetricTile
+          icon={Icons.Players}
+          label="Players"
+          loading={statusQuery.isLoading}
+        >
+          <p className="mt-1 font-pixel text-xl">{status?.player_count ?? 0}</p>
+          <p className="text-xs text-muted mt-1">
+            Uptime {formatUptime(status?.container.uptime_seconds ?? null)}
+          </p>
+        </MetricTile>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3 stagger-children">
-        <div className="mf-card p-4">
-          <p className="text-sm text-muted">CPU</p>
-          {metricsQuery.isLoading ? (
-            <Skeleton className="mt-2 h-7 w-16" />
-          ) : (
-            <p className="mt-1 font-pixel text-xl">
-              {latest ? `${latest.cpu_pct.toFixed(1)}%` : "—"}
-            </p>
-          )}
-        </div>
-        <div className="mf-card p-4">
-          <p className="text-sm text-muted">Memory</p>
-          {metricsQuery.isLoading ? (
-            <Skeleton className="mt-2 h-7 w-20" />
-          ) : (
-            <p className="mt-1 font-pixel text-xl">
-              {latest ? formatBytes(latest.mem_bytes) : "—"}
-            </p>
-          )}
-        </div>
-        <div className="mf-card p-4">
-          <p className="text-sm text-muted">Disk</p>
-          {metricsQuery.isLoading ? (
-            <Skeleton className="mt-2 h-7 w-24" />
-          ) : (
-            <p className="mt-1 font-pixel text-xl truncate">
-              {formatBytes(
-                (metrics?.disk.worlds_bytes ?? 0) + (metrics?.disk.backups_bytes ?? 0),
-              )}
-            </p>
-          )}
-        </div>
+        <MetricTile icon={Icons.Cpu} label="CPU" loading={metricsQuery.isLoading}>
+          <p className="mt-1 font-pixel text-xl">
+            {latest ? `${latest.cpu_pct.toFixed(1)}%` : "—"}
+          </p>
+        </MetricTile>
+        <MetricTile icon={Icons.Memory} label="Memory" loading={metricsQuery.isLoading}>
+          <p className="mt-1 font-pixel text-xl">
+            {latest ? formatBytes(latest.mem_bytes) : "—"}
+          </p>
+        </MetricTile>
+        <MetricTile icon={Icons.Disk} label="Disk" loading={metricsQuery.isLoading}>
+          <p className="mt-1 font-pixel text-xl truncate">
+            {formatBytes(
+              (metrics?.disk.worlds_bytes ?? 0) + (metrics?.disk.backups_bytes ?? 0),
+            )}
+          </p>
+        </MetricTile>
       </div>
 
       {metrics && metrics.playtime_week.length > 0 ? (
@@ -186,8 +157,7 @@ export function HomePage() {
             </Link>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="mf-card p-4">
-              <p className="text-sm text-muted">Packs</p>
+            <MetricTile icon={Icons.Packs} label="Packs">
               <p className="mt-1 font-pixel text-xl">
                 {metrics.world_insight.totals.packs ?? 0}
               </p>
@@ -196,9 +166,8 @@ export function HomePage() {
                   (metrics.world_insight.categories.structures_builds ?? 0)}{" "}
                 weapons/builds packs
               </p>
-            </div>
-            <div className="mf-card p-4">
-              <p className="text-sm text-muted">Items · entities</p>
+            </MetricTile>
+            <MetricTile icon={Icons.Items} label="Items · entities">
               <p className="mt-1 font-pixel text-xl">
                 {metrics.world_insight.totals.items ?? 0} ·{" "}
                 {metrics.world_insight.totals.entities ?? 0}
@@ -207,23 +176,25 @@ export function HomePage() {
                 {metrics.world_insight.totals.structures ?? 0} structures ·{" "}
                 {metrics.world_insight.totals.weapon_like_items ?? 0} weapon-like
               </p>
-            </div>
-            <div className="mf-card p-4">
-              <p className="text-sm text-muted">Seed</p>
+            </MetricTile>
+            <MetricTile icon={Icons.Seed} label="Seed">
               <p className="mt-1 font-pixel text-sm truncate">
                 {String(metrics.world_insight.level?.seed ?? "—")}
               </p>
               <p className="text-xs text-muted mt-1">
                 DB {formatBytes(Number(metrics.world_insight.world?.db_bytes ?? 0))}
               </p>
-            </div>
+            </MetricTile>
           </div>
         </div>
       ) : null}
 
       {metrics?.login_activity && metrics.login_activity.recent.length > 0 ? (
         <div className="space-y-2">
-          <h2 className="text-lg">Recent panel logins</h2>
+          <h2 className="text-lg inline-flex items-center gap-2">
+            <Icon icon={Icons.Login} size={18} className="text-primary" />
+            Recent panel logins
+          </h2>
           <ul className="text-sm text-muted space-y-1">
             {metrics.login_activity.recent.slice(0, 5).map((row) => (
               <li
@@ -254,75 +225,57 @@ export function HomePage() {
         </div>
       ) : null}
 
-      <ul className="space-y-2 text-sm">
-        <li>
-          <Link
-            className="text-accent underline-offset-2 hover:underline"
-            to="/metrics"
-          >
-            Metrics
-          </Link>
-        </li>
-        <li>
-          <Link className="text-accent underline-offset-2 hover:underline" to="/stream">
-            Stream
-          </Link>
-        </li>
-        <li>
-          <Link className="text-accent underline-offset-2 hover:underline" to="/worlds">
-            Worlds
-          </Link>
-        </li>
-        <li>
-          <Link className="text-accent underline-offset-2 hover:underline" to="/addons">
-            Add-ons
-          </Link>
-        </li>
-        <li>
-          <Link
-            className="text-accent underline-offset-2 hover:underline"
-            to="/backups"
-          >
-            Backups
-          </Link>
-        </li>
-        {user?.role === "admin" ? (
-          <>
-            <li>
-              <Link
-                className="text-accent underline-offset-2 hover:underline"
-                to="/server"
-              >
-                Server controls
-              </Link>
-            </li>
-            <li>
-              <Link
-                className="text-accent underline-offset-2 hover:underline"
-                to="/console"
-              >
-                Live console
-              </Link>
-            </li>
-            <li>
-              <Link
-                className="text-accent underline-offset-2 hover:underline"
-                to="/users"
-              >
-                Manage users
-              </Link>
-            </li>
-          </>
-        ) : null}
-        <li>
-          <Link
-            className="text-accent underline-offset-2 hover:underline"
-            to="/account"
-          >
-            Account settings
-          </Link>
-        </li>
+      <ul className="grid gap-2 sm:grid-cols-2 text-sm">
+        {(
+          [
+            { to: "/metrics", label: "Metrics", icon: Icons.Metrics },
+            { to: "/stream", label: "Stream", icon: Icons.Stream },
+            { to: "/worlds", label: "Worlds", icon: Icons.Worlds },
+            { to: "/addons", label: "Add-ons", icon: Icons.Addons },
+            { to: "/backups", label: "Backups", icon: Icons.Backups },
+            ...(user?.role === "admin"
+              ? [
+                  { to: "/server", label: "Server controls", icon: Icons.Server },
+                  { to: "/console", label: "Live console", icon: Icons.Console },
+                  { to: "/users", label: "Manage users", icon: Icons.Users },
+                ]
+              : []),
+            { to: "/account", label: "Account settings", icon: Icons.Account },
+          ] as const
+        ).map((item) => (
+          <li key={item.to}>
+            <Link
+              className="mf-card flex min-h-11 items-center gap-2 px-3 py-2 text-text hover:text-primary"
+              to={item.to}
+            >
+              <Icon icon={item.icon} size={16} className="text-primary" />
+              {item.label}
+            </Link>
+          </li>
+        ))}
       </ul>
     </section>
+  );
+}
+
+function MetricTile({
+  icon,
+  label,
+  loading,
+  children,
+}: {
+  icon: LucideIcon;
+  label: string;
+  loading?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className="mf-card p-4">
+      <p className="inline-flex items-center gap-2 text-sm text-muted">
+        <Icon icon={icon} size={15} className="text-primary" />
+        {label}
+      </p>
+      {loading ? <Skeleton className="mt-2 h-7 w-24" /> : children}
+    </div>
   );
 }
