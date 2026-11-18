@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
+import { Icon, Icons } from "../../components/icons";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { SkeletonLines } from "../../components/ui/Skeleton";
@@ -71,6 +72,7 @@ export function AddonsPage() {
   const [draft, setDraft] = useState<WorldAddonEntry[]>([]);
   const [operationId, setOperationId] = useState<number | null>(null);
   const [pendingWorldId, setPendingWorldId] = useState<number | null>(null);
+  const [packFilter, setPackFilter] = useState<"all" | "active" | "inactive">("all");
 
   const addonsQuery = useQuery({
     queryKey: ["addons"],
@@ -239,6 +241,12 @@ export function AddonsPage() {
   const enabledCount = draft.filter((e) => e.enabled).length;
   const allSelected = addons.length > 0 && enabledCount === addons.length;
   const noneSelected = enabledCount === 0;
+  const enabledIds = new Set(draft.filter((e) => e.enabled).map((e) => e.addon_id));
+  const sortedAddons = [...addons].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+  );
+  const activePacks = sortedAddons.filter((a) => enabledIds.has(a.id));
+  const inactivePacks = sortedAddons.filter((a) => !enabledIds.has(a.id));
 
   useEffect(() => {
     if (selectAllRef.current) {
@@ -246,9 +254,43 @@ export function AddonsPage() {
     }
   }, [allSelected, noneSelected]);
 
+  function renderPackRow(a: AddonResponse, active: boolean) {
+    return (
+      <li
+        key={a.id}
+        className={`flex items-center gap-3 rounded-md px-2 py-1.5 text-sm ${
+          active ? "bg-primary/10" : "bg-transparent"
+        }`}
+      >
+        <input
+          type="checkbox"
+          checked={active}
+          onChange={() => toggleInProfile(a)}
+          id={`addon-${a.id}`}
+        />
+        <label htmlFor={`addon-${a.id}`} className="min-w-0 flex-1">
+          <span className={active ? "text-text" : "text-muted"}>{a.name}</span>{" "}
+          <span className="text-muted">
+            ({a.kind}
+            {a.encrypted ? ", encrypted" : ""}
+            {a.missing_pair ? ", missing pair" : ""})
+          </span>
+        </label>
+        <span
+          className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
+            active ? "bg-primary/20 text-primary" : "bg-border/50 text-muted"
+          }`}
+        >
+          {active ? "Active" : "Inactive"}
+        </span>
+      </li>
+    );
+  }
+
   function loadProfile(id: number) {
     setWorldId(id);
     setDraft([]);
+    setPackFilter("all");
     void fetchWorldProfile(id)
       .then((data) => setDraft(data.entries))
       .catch((err: Error) => setError(err.message));
@@ -518,7 +560,7 @@ export function AddonsPage() {
               </p>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-muted">
-                  Selected {enabledCount}/{addons.length}
+                  Active {enabledCount} · Inactive {addons.length - enabledCount}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -537,8 +579,29 @@ export function AddonsPage() {
                   </Button>
                 </div>
               </div>
-              <div className="max-h-[min(50vh,28rem)] overflow-y-auto rounded-md border border-border p-3">
-                <div className="mb-3 flex items-center gap-3 border-b border-border pb-2 text-sm">
+              <div
+                className="flex flex-wrap gap-2"
+                role="group"
+                aria-label="Filter packs"
+              >
+                {(
+                  [
+                    { id: "all", label: `All (${addons.length})` },
+                    { id: "active", label: `Active (${activePacks.length})` },
+                    { id: "inactive", label: `Inactive (${inactivePacks.length})` },
+                  ] as const
+                ).map((opt) => (
+                  <Button
+                    key={opt.id}
+                    variant={packFilter === opt.id ? "primary" : "secondary"}
+                    onClick={() => setPackFilter(opt.id)}
+                  >
+                    {opt.label}
+                  </Button>
+                ))}
+              </div>
+              <div className="max-h-[min(50vh,28rem)] overflow-y-auto rounded-md border border-border p-3 space-y-4">
+                <div className="flex items-center gap-3 border-b border-border pb-2 text-sm">
                   <input
                     ref={selectAllRef}
                     type="checkbox"
@@ -554,29 +617,38 @@ export function AddonsPage() {
                     {allSelected ? "Deselect all packs" : "Select all packs"}
                   </label>
                 </div>
-                <ul className="space-y-2">
-                  {addons.map((a) => {
-                    const on = draft.some((e) => e.addon_id === a.id && e.enabled);
-                    return (
-                      <li key={a.id} className="flex items-center gap-3 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={on}
-                          onChange={() => toggleInProfile(a)}
-                          id={`addon-${a.id}`}
-                        />
-                        <label htmlFor={`addon-${a.id}`}>
-                          {a.name}{" "}
-                          <span className="text-muted">
-                            ({a.kind}
-                            {a.encrypted ? ", encrypted" : ""}
-                            {a.missing_pair ? ", missing pair" : ""})
-                          </span>
-                        </label>
-                      </li>
-                    );
-                  })}
-                </ul>
+
+                {packFilter !== "inactive" ? (
+                  <section className="space-y-2" aria-label="Active packs">
+                    <h3 className="inline-flex items-center gap-2 text-sm text-primary">
+                      <Icon icon={Icons.Check} size={15} />
+                      Active ({activePacks.length})
+                    </h3>
+                    {activePacks.length === 0 ? (
+                      <p className="text-xs text-muted px-2">No packs enabled yet.</p>
+                    ) : (
+                      <ul className="space-y-1">
+                        {activePacks.map((a) => renderPackRow(a, true))}
+                      </ul>
+                    )}
+                  </section>
+                ) : null}
+
+                {packFilter !== "active" ? (
+                  <section className="space-y-2" aria-label="Inactive packs">
+                    <h3 className="inline-flex items-center gap-2 text-sm text-muted">
+                      <Icon icon={Icons.Offline} size={15} />
+                      Inactive ({inactivePacks.length})
+                    </h3>
+                    {inactivePacks.length === 0 ? (
+                      <p className="text-xs text-muted px-2">Every pack is enabled.</p>
+                    ) : (
+                      <ul className="space-y-1">
+                        {inactivePacks.map((a) => renderPackRow(a, false))}
+                      </ul>
+                    )}
+                  </section>
+                ) : null}
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
