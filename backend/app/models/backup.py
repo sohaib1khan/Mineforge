@@ -15,6 +15,8 @@ class BackupKind(StrEnum):
     PRE_RESTORE = "pre_restore"
     PRE_RESET = "pre_reset"
     PRE_ADDON = "pre_addon"
+    # First import / capture; used by Reset and never auto-deleted.
+    ORIGINAL = "original"
 
 
 class Backup(SQLModel, table=True):

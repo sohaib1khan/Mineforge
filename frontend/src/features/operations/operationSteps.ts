@@ -72,15 +72,15 @@ const RESET_STEPS: StepDef[] = [
     match: (l) => /stopping bedrock/i.test(l),
   },
   {
-    id: "wipe",
-    label: "Wipe world files",
-    match: (l) => /wiping world files/i.test(l),
+    id: "restore",
+    label: "Restore original upload",
+    match: (l) =>
+      /extracting original|restoring original|resetting .+ to original/i.test(l),
   },
   {
     id: "start",
-    label: "Regenerate world",
-    match: (l) =>
-      /starting bedrock|waiting for server health|healthy|generate/i.test(l),
+    label: "Start Bedrock",
+    match: (l) => /starting bedrock|waiting for server health|healthy/i.test(l),
   },
   {
     id: "done",

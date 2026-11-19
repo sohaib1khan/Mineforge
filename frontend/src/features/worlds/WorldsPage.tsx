@@ -113,7 +113,10 @@ export function WorldsPage() {
     onSuccess: (data) => {
       setError(null);
       setOperationId(data.operation.id);
-      toast.push("World reset started. A backup is taken first.", "info");
+      toast.push(
+        "Reset started — restoring original upload after a safety backup.",
+        "info",
+      );
     },
     onError: (err: Error) => {
       setError(err.message);
@@ -284,13 +287,14 @@ export function WorldsPage() {
                       disabled={resetMutation.isPending}
                       onClick={() => {
                         const activeNote = w.is_active
-                          ? " This is the ACTIVE world — Bedrock will stop, wipe, and regenerate it."
+                          ? " This is the ACTIVE world — Bedrock will restart after restore."
                           : "";
                         if (
                           window.confirm(
-                            `Reset "${w.display_name}" to a fresh empty world?` +
-                              ` A backup is taken first when level.dat exists.` +
-                              ` The world name, folder, and add-on profile are kept.` +
+                            `Reset "${w.display_name}" to the original uploaded world?` +
+                              ` Current progress is backed up first, then the first-upload` +
+                              ` baseline is restored (not an empty landscape).` +
+                              ` Name, folder, and add-on profile are kept.` +
                               activeNote,
                           )
                         ) {

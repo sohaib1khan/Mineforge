@@ -137,6 +137,14 @@
   .mf-sheet {
     overscroll-behavior: contain;
   }
+
+  /* Mobile sheets clear the bottom tab bar so actions stay tappable. */
+  @media (max-width: 767px) {
+    .mf-sheet-above-nav {
+      margin-bottom: calc(3.75rem + env(safe-area-inset-bottom, 0px));
+      max-height: calc(100dvh - 4.75rem - env(safe-area-inset-bottom, 0px));
+    }
+  }
 }
 
 @layer utilities {

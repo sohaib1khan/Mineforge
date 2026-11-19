@@ -413,6 +413,23 @@ def import_mcworld(
         )
         session.commit()
         session.refresh(world)
+        # Durable baseline for Reset → restore to first-uploaded state.
+        try:
+            from app.services import backups as backup_service
+
+            backup_service.capture_original_baseline(
+                session,
+                settings,
+                world_id=world.id,  # type: ignore[arg-type]
+                world_folder=folder,
+                created_by=user_id,
+            )
+        except Exception as exc:
+            logger.warning("Original baseline capture failed for %s: %s", folder, exc)
+            warnings = [
+                *warnings,
+                "Imported, but original baseline backup failed — Reset may be unavailable.",
+            ]
         return world, warnings
     finally:
         shutil.rmtree(staging, ignore_errors=True)
@@ -605,18 +622,26 @@ def reset_world(
     role: UserRole,
     ip: str | None,
 ) -> dict[str, Any]:
-    """Queue a reset that wipes world files after a safety backup (admin).
+    """Queue a reset that restores the original upload baseline (admin).
 
-    Keeps the same world row / folder name / add-on profile. Bedrock regenerates
-    level data on the next start (immediately if this world is active).
+    Keeps the same world row / folder name / add-on profile. Does **not** wipe
+    to an empty landscape — restores the first-imported (or oldest promoted)
+    baseline archive after a safety backup of the current files.
     """
 
     _require_admin(role)
+    from app.services import backups as backup_service
+
     world = get_world(session, world_id)
     folder = world.folder_name
     path = world_path(settings, folder)
     if path.exists() and not path.is_dir():
         raise AppError(f"World path is not a directory: {folder}")
+
+    # Fail fast if nothing can be restored to.
+    baseline = backup_service.resolve_reset_baseline(
+        session, settings, world_id=world.id, world_folder=folder  # type: ignore[arg-type]
+    )
 
     docker = get_docker_client(settings)
     was_running = bool(docker.status().running)
@@ -630,6 +655,7 @@ def reset_world(
             "folder": folder,
             "was_active": is_active,
             "was_running": was_running,
+            "baseline_backup_id": baseline.id,
         },
         started_by=user_id,
     )
@@ -638,7 +664,11 @@ def reset_world(
         action="world.reset_start",
         user_id=user_id,
         target=folder,
-        details={"operation_id": op.id, "active": is_active},
+        details={
+            "operation_id": op.id,
+            "active": is_active,
+            "baseline_backup_id": baseline.id,
+        },
         ip=ip,
     )
     session.commit()
@@ -646,9 +676,8 @@ def reset_world(
     assert operation_id is not None
     wid = world.id
     assert wid is not None
-    seed = world.seed
-    gamemode = world.gamemode
-    difficulty = world.difficulty
+    baseline_id = baseline.id
+    assert baseline_id is not None
 
     def work(worker_session: Session, oid: int) -> None:
         _run_world_reset(
@@ -657,11 +686,9 @@ def reset_world(
             operation_id=oid,
             world_id=wid,
             folder=folder,
+            baseline_backup_id=baseline_id,
             is_active=is_active,
             was_running=was_running,
-            seed=seed,
-            gamemode=gamemode,
-            difficulty=difficulty,
             started_by=user_id,
         )
 
@@ -676,20 +703,23 @@ def _run_world_reset(
     operation_id: int,
     world_id: int,
     folder: str,
+    baseline_backup_id: int,
     is_active: bool,
     was_running: bool,
-    seed: str | None,
-    gamemode: str | None,
-    difficulty: str | None,
     started_by: int | None,
 ) -> None:
-    """Backup, wipe, recreate empty world folder; restart if it was active."""
+    """Safety-backup current files, then restore the original upload baseline."""
 
     from app.services import backups as backup_service
 
     path = world_path(settings, folder)
     docker = get_docker_client(settings)
-    ops.append_log(session, operation_id, f"Resetting world {folder}")
+    baseline = backup_service.get_backup(session, baseline_backup_id)
+    ops.append_log(
+        session,
+        operation_id,
+        f"Resetting {folder} to original upload (backup #{baseline_backup_id})",
+    )
 
     if path.is_dir() and (path / "level.dat").is_file():
         ops.append_log(session, operation_id, f"Pre-reset backup of {folder}")
@@ -707,8 +737,9 @@ def _run_world_reset(
             session, operation_id, "No level.dat yet — skipping pre-reset backup"
         )
 
-    if is_active and was_running:
-        ops.append_log(session, operation_id, "Stopping Bedrock for active reset")
+    # Always stop if running — restore swaps files under /data/worlds safely.
+    if was_running:
+        ops.append_log(session, operation_id, "Stopping Bedrock for reset restore")
         try:
             from app.services import console as console_service
 
@@ -718,77 +749,46 @@ def _run_world_reset(
             pass
         docker.stop(timeout=45)
 
-    ops.append_log(session, operation_id, "Wiping world files")
-    _recreate_empty_world_folder(
+    backup_service.restore_archive_to_world_folder(
+        session,
         settings,
-        path,
-        seed=seed,
-        gamemode=gamemode,
-        difficulty=difficulty,
+        archive=Path(baseline.path),
+        world_folder=folder,
+        world_dir=path,
+        operation_id=operation_id,
     )
 
     world = get_world(session, world_id)
     world.size_bytes = dir_size(path) if path.is_dir() else 0
-    world.seed = seed
     world.needs_experiments = False
     session.add(world)
     session.commit()
 
-    if is_active:
-        ops.append_log(
-            session, operation_id, "Starting Bedrock to generate fresh world"
-        )
+    if was_running or is_active:
+        ops.append_log(session, operation_id, "Starting Bedrock after reset restore")
         docker.start()
         from app.services.switch import backup_service_wait_healthy
 
         backup_service_wait_healthy(settings, session, operation_id)
-        deadline = time.monotonic() + 60
-        while time.monotonic() < deadline:
-            if (path / "level.dat").is_file():
-                break
-            time.sleep(1)
         world = get_world(session, world_id)
         world.size_bytes = dir_size(path) if path.is_dir() else 0
-        world.last_played_at = datetime.now(UTC)
+        if is_active:
+            world.last_played_at = datetime.now(UTC)
         session.add(world)
         session.commit()
-    elif was_running and not is_active:
-        # Inactive reset should not have stopped the server.
-        pass
 
     record_audit(
         session,
         action="world.reset_success",
         user_id=started_by,
         target=folder,
-        details={"operation_id": operation_id},
+        details={
+            "operation_id": operation_id,
+            "baseline_backup_id": baseline_backup_id,
+        },
     )
     session.commit()
     ops.append_log(session, operation_id, f"Reset complete for {folder}")
-
-
-def _recreate_empty_world_folder(
-    settings: Settings,
-    path: Path,
-    *,
-    seed: str | None,
-    gamemode: str | None,
-    difficulty: str | None,
-) -> None:
-    """Remove existing world contents and leave a create-style placeholder."""
-
-    if path.exists():
-        if path.is_dir():
-            shutil.rmtree(path)
-        else:
-            path.unlink()
-    path.mkdir(parents=True, exist_ok=False)
-    (path / "db").mkdir()
-    (path / ".mineforge-new").write_text(
-        f"seed={seed or ''}\ngamemode={gamemode or ''}\ndifficulty={difficulty or ''}\n",
-        encoding="utf-8",
-    )
-    _chown_tree(path, settings.bedrock_uid, settings.bedrock_gid)
 
 
 def _find_world_root(extracted: Path) -> Path:

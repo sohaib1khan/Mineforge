@@ -88,8 +88,14 @@ export function SwitchDialog({ world, onClose, onStarted }: Props) {
       aria-modal="true"
       aria-label="Switch world"
     >
-      <div className="mf-sheet w-full max-w-md rounded-t-2xl border border-border bg-surface shadow-xl sm:rounded-xl max-h-[92vh] overflow-y-auto animate-slide-up">
-        <div className="sticky top-0 z-10 border-b border-border bg-surface/95 px-5 pt-3 pb-4 backdrop-blur">
+      <button
+        type="button"
+        className="absolute inset-0 cursor-default"
+        aria-label="Dismiss switch dialog"
+        onClick={onClose}
+      />
+      <div className="mf-sheet mf-sheet-above-nav relative z-10 flex w-full max-w-md flex-col rounded-t-2xl border border-border bg-surface shadow-xl sm:rounded-xl animate-slide-up sm:mb-0 sm:max-h-[min(92vh,40rem)]">
+        <div className="shrink-0 border-b border-border bg-surface px-5 pt-3 pb-4">
           <div
             className="mx-auto mb-3 h-1 w-10 rounded-full bg-border sm:hidden"
             aria-hidden
@@ -111,7 +117,7 @@ export function SwitchDialog({ world, onClose, onStarted }: Props) {
               const active = index === phaseIndex;
               const done = index < phaseIndex;
               return (
-                <li key={label} className="flex flex-1 items-center gap-2">
+                <li key={label} className="flex flex-1 items-center gap-2 min-w-0">
                   <span
                     className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs ${
                       done
@@ -124,7 +130,7 @@ export function SwitchDialog({ world, onClose, onStarted }: Props) {
                     {done ? <Icon icon={Icons.Check} size={14} /> : index + 1}
                   </span>
                   <span
-                    className={`hidden text-xs sm:inline ${
+                    className={`text-[11px] truncate sm:text-xs ${
                       active ? "text-text" : "text-muted"
                     }`}
                   >
@@ -139,7 +145,7 @@ export function SwitchDialog({ world, onClose, onStarted }: Props) {
           </ol>
         </div>
 
-        <div className="space-y-4 px-5 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-4">
           {phase === "review" ? (
             <>
               <p className="text-sm text-muted leading-relaxed">
@@ -239,7 +245,7 @@ export function SwitchDialog({ world, onClose, onStarted }: Props) {
           ) : null}
         </div>
 
-        <div className="sticky bottom-0 flex flex-wrap gap-2 justify-between border-t border-border bg-surface/95 px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur">
+        <div className="shrink-0 flex flex-wrap gap-2 justify-between border-t border-border bg-surface px-5 py-3">
           <Button
             variant="ghost"
             onClick={() => {
@@ -305,7 +311,7 @@ export function SwitchDialog({ world, onClose, onStarted }: Props) {
                     }}
                     disabled={switchMutation.isPending}
                   >
-                    Force switch
+                    Force
                   </Button>
                 ) : null}
               </>

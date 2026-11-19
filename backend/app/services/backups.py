@@ -95,6 +95,148 @@ def get_backup(session: Session, backup_id: int) -> Backup:
     return backup
 
 
+def get_original_backup(session: Session, world_id: int) -> Backup | None:
+    """Return the ORIGINAL baseline for a world if the archive still exists."""
+
+    rows = list(
+        session.exec(
+            select(Backup)
+            .where(Backup.world_id == world_id)
+            .where(Backup.kind == BackupKind.ORIGINAL)
+            .order_by(col(Backup.created_at).asc())
+        ).all()
+    )
+    for row in rows:
+        if Path(row.path).is_file():
+            return row
+    return None
+
+
+def resolve_reset_baseline(
+    session: Session,
+    settings: Settings,
+    *,
+    world_id: int,
+    world_folder: str,
+) -> Backup:
+    """Pick the archive Reset should restore.
+
+    Prefers an ``ORIGINAL`` baseline. If none exists (worlds imported before
+    baselines), promotes the oldest surviving backup for that world.
+    """
+
+    original = get_original_backup(session, world_id)
+    if original is not None:
+        return original
+
+    oldest = list(
+        session.exec(
+            select(Backup)
+            .where(Backup.world_id == world_id)
+            .order_by(col(Backup.created_at).asc())
+        ).all()
+    )
+    for row in oldest:
+        src = Path(row.path)
+        if not src.is_file():
+            continue
+        # Promote a durable ORIGINAL copy so retention cannot remove it later.
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        dest = (
+            backups_dir(settings)
+            / f"{world_folder}-{BackupKind.ORIGINAL.value}-{stamp}.tar.zst"
+        )
+        shutil.copy2(src, dest)
+        digest = sha256_file(dest)
+        promoted = Backup(
+            world_id=world_id,
+            kind=BackupKind.ORIGINAL,
+            path=str(dest),
+            size_bytes=dest.stat().st_size,
+            sha256=digest,
+            verified=True,
+            created_by=row.created_by,
+            world_folder=world_folder,
+        )
+        session.add(promoted)
+        session.commit()
+        session.refresh(promoted)
+        return promoted
+
+    raise AppError(
+        "No original upload baseline (or older backup) found for this world. "
+        "Re-import the .mcworld, or take a manual backup first and try Reset again."
+    )
+
+
+def capture_original_baseline(
+    session: Session,
+    settings: Settings,
+    *,
+    world_id: int,
+    world_folder: str,
+    created_by: int | None,
+) -> Backup:
+    """Create or replace the ORIGINAL baseline from the current world folder."""
+
+    existing = get_original_backup(session, world_id)
+    if existing is not None:
+        return existing
+    return create_backup_sync(
+        session,
+        settings,
+        world_id=world_id,
+        world_folder=world_folder,
+        kind=BackupKind.ORIGINAL,
+        created_by=created_by,
+    )
+
+
+def restore_archive_to_world_folder(
+    session: Session,
+    settings: Settings,
+    *,
+    archive: Path,
+    world_folder: str,
+    world_dir: Path,
+    operation_id: int | None = None,
+) -> None:
+    """Extract a backup archive over ``world_dir`` (server must already be stopped)."""
+
+    def log(msg: str) -> None:
+        if operation_id is not None:
+            ops.append_log(session, operation_id, msg)
+
+    if not archive.is_file():
+        raise AppError("Baseline archive missing on disk")
+
+    work_root = Path(
+        tempfile.mkdtemp(prefix="mf-reset-", dir=str(backups_dir(settings)))
+    )
+    extract_dir = work_root / "extract"
+    old_dir = work_root / "old-world"
+    extract_dir.mkdir()
+    try:
+        log("Extracting original upload baseline")
+        extracted = extract_tar_zst(archive, extract_dir)
+        if extracted.name == world_folder or (extracted / "level.dat").is_file():
+            new_world = extracted
+        else:
+            candidate = extracted / world_folder
+            new_world = candidate if candidate.is_dir() else extracted
+        worlds_service.validate_world_folder(new_world)
+
+        log("Restoring original world files")
+        if world_dir.exists():
+            atomic_replace_dir(new_world, world_dir, backup=old_dir)
+        else:
+            world_dir.parent.mkdir(parents=True, exist_ok=True)
+            new_world.replace(world_dir)
+        _chown_tree(world_dir, settings.bedrock_uid, settings.bedrock_gid)
+    finally:
+        shutil.rmtree(work_root, ignore_errors=True)
+
+
 def backup_to_dict(backup: Backup) -> dict[str, Any]:
     return {
         "id": backup.id,
@@ -238,6 +380,11 @@ def delete_backup(
     if role != UserRole.ADMIN:
         raise ForbiddenError("Admin access required to delete backups")
     backup = get_backup(session, backup_id)
+    if backup.kind == BackupKind.ORIGINAL:
+        raise AppError(
+            "Cannot delete the original upload baseline — Reset uses it. "
+            "Capture a new original only by re-importing or saving a new baseline."
+        )
     path = Path(backup.path)
     # Ensure path stays under backups dir
     root = backups_dir(settings).resolve()
@@ -276,6 +423,9 @@ def apply_retention(session: Session, settings: Settings) -> int:
     removed = 0
     for backup in backups:
         assert backup.id is not None
+        if backup.kind == BackupKind.ORIGINAL:
+            # Never auto-delete upload baselines used by world Reset.
+            continue
         if backup.world_folder not in seen_folders:
             seen_folders.add(backup.world_folder)
             newest_by_folder.add(backup.id)
