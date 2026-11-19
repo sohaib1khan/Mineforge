@@ -165,10 +165,11 @@ export function AddonsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: deleteAddon,
-    onSuccess: () => {
+    onSuccess: async () => {
       setError(null);
-      toast.push("Pack deleted.", "success");
-      void queryClient.invalidateQueries({ queryKey: ["addons"] });
+      toast.push("Pack deleted from library and server data.", "success");
+      await queryClient.invalidateQueries({ queryKey: ["addons"] });
+      await queryClient.invalidateQueries({ queryKey: ["addon-profile"] });
     },
     onError: (err: Error) => {
       setError(err.message);
@@ -424,13 +425,20 @@ export function AddonsPage() {
                       {isAdmin ? (
                         <Button
                           variant="danger"
+                          className="shrink-0 self-start sm:self-center"
+                          disabled={deleteMutation.isPending}
                           onClick={() => {
-                            if (window.confirm(`Delete ${a.name}?`)) {
+                            const label = a.name.replace(/§./g, "").trim() || a.name;
+                            if (
+                              window.confirm(
+                                `Delete "${label}" from the library and remove it from server pack folders? Worlds that had it enabled will drop it from their pack list.`,
+                              )
+                            ) {
                               deleteMutation.mutate(a.id);
                             }
                           }}
                         >
-                          Delete
+                          {deleteMutation.isPending ? "Deleting…" : "Delete"}
                         </Button>
                       ) : null}
                     </li>

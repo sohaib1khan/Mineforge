@@ -94,6 +94,7 @@ Creating or importing only **adds** a folder. Existing worlds stay put until you
 ## Add-ons (admin manage; everyone can view)
 
 - Upload `.mcaddon` / `.mcpack` into the library.
+- Admins can **Delete** a pack to remove it from the library and from Bedrock `/data` pack folders (so it does not reappear on refresh). Worlds that listed it drop that pack UUID from their pack JSON.
 - Admins can **Backup library** / **Restore** under Add-ons to snapshot every pack plus per-world assignments.
 - Flags warn about missing BP/RP halves, Marketplace/encrypted packs, and Beta APIs.
 - Per-world tab: enable packs, **Save profile**, then **Apply** or **Test**.

@@ -143,14 +143,8 @@ def import_packs_from_server_data(session: Session, settings: Settings) -> int:
         Number of newly imported library rows.
     """
 
-    roots = [
-        settings.data_dir / "behavior_packs",
-        settings.data_dir / "resource_packs",
-        settings.data_dir / "development_behavior_packs",
-        settings.data_dir / "development_resource_packs",
-    ]
     created = 0
-    for root in roots:
+    for root in _server_pack_roots(settings):
         if not root.is_dir():
             continue
         for child in sorted(root.iterdir()):
@@ -455,9 +449,17 @@ def delete_addon(
     role: UserRole,
     ip: str | None,
 ) -> None:
+    """Remove a pack from the library and from Bedrock ``/data`` pack folders.
+
+    Also strips the pack UUID from every world's pack JSON so Apply/list does not
+    keep re-importing the same pack from server data.
+    """
+
     if role != UserRole.ADMIN:
         raise ForbiddenError("Admin access required")
     addon = get_addon(session, addon_id)
+    pack_uuid = addon.pack_uuid
+    kind = addon.kind
     links = list(
         session.exec(select(WorldAddon).where(WorldAddon.addon_id == addon_id)).all()
     )
@@ -478,8 +480,96 @@ def delete_addon(
     session.commit()
     if storage.is_dir():
         shutil.rmtree(storage, ignore_errors=True)
+    removed = _remove_server_pack_copies(settings, pack_uuid=pack_uuid, kind=kind)
+    stripped = _strip_pack_uuid_from_world_jsons(settings, pack_uuid=pack_uuid)
+    logger.info(
+        "Deleted addon %s (%s): removed %s server folder(s), stripped %s world JSON file(s)",
+        addon_id,
+        pack_uuid,
+        removed,
+        stripped,
+    )
     _refresh_pairing(session, settings)
     session.commit()
+
+
+def _server_pack_roots(settings: Settings) -> list[Path]:
+    return [
+        settings.data_dir / "behavior_packs",
+        settings.data_dir / "resource_packs",
+        settings.data_dir / "development_behavior_packs",
+        settings.data_dir / "development_resource_packs",
+    ]
+
+
+def _remove_server_pack_copies(
+    settings: Settings, *, pack_uuid: str, kind: AddonKind
+) -> int:
+    """Delete matching pack folders under Bedrock ``/data`` pack roots."""
+
+    target = pack_uuid.lower()
+    removed = 0
+    for root in _server_pack_roots(settings):
+        if not root.is_dir():
+            continue
+        for child in list(root.iterdir()):
+            if not child.is_dir() or not (child / "manifest.json").is_file():
+                continue
+            try:
+                parsed = parse_manifest(child)
+            except AppError:
+                continue
+            if parsed.kind != kind:
+                continue
+            if parsed.pack_uuid.lower() != target:
+                continue
+            if _is_stock_pack(child.name, parsed.name):
+                continue
+            shutil.rmtree(child, ignore_errors=True)
+            removed += 1
+    return removed
+
+
+def _strip_pack_uuid_from_world_jsons(settings: Settings, *, pack_uuid: str) -> int:
+    """Remove a pack UUID from every world's behavior/resource pack JSON lists."""
+
+    target = pack_uuid.lower()
+    worlds_root = settings.data_dir / "worlds"
+    if not worlds_root.is_dir():
+        return 0
+    changed = 0
+    for world_dir in worlds_root.iterdir():
+        if not world_dir.is_dir():
+            continue
+        for json_name in ("world_behavior_packs.json", "world_resource_packs.json"):
+            path = world_dir / json_name
+            if not path.is_file():
+                continue
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(payload, list):
+                continue
+            kept: list[Any] = []
+            removed_any = False
+            for entry in payload:
+                if not isinstance(entry, dict):
+                    kept.append(entry)
+                    continue
+                entry_id = str(entry.get("pack_id") or entry.get("uuid") or "").lower()
+                if entry_id == target:
+                    removed_any = True
+                    continue
+                kept.append(entry)
+            if not removed_any:
+                continue
+            path.write_text(
+                json.dumps(kept, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            changed += 1
+    return changed
 
 
 def get_world_profile(session: Session, world_id: int) -> list[dict[str, Any]]:

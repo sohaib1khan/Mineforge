@@ -267,3 +267,53 @@ def test_apply_preserves_embedded_packs_and_test_auto_reverts(
         time.sleep(0.2)
     assert json.loads(bp_json.read_text(encoding="utf-8")) == []
     assert addon_service.list_pending_tests() == []
+
+
+def test_delete_addon_removes_server_copy_and_does_not_reimport(
+    client: TestClient, admin_user, app_data_dir: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Deleting a library pack must also clear /data copies so list does not revive it."""
+
+    data = app_data_dir.parent / "data"
+    _seed_world(data)
+    monkeypatch.setenv("MINEFORGE_DATA_DIR", str(data))
+    clear_settings_cache()
+    reset_locks_for_tests()
+    set_docker_client_override(FakeDocker(running=False))
+
+    live = data / "behavior_packs" / "LibraryBP-c54914f1"
+    live.mkdir(parents=True)
+    (live / "manifest.json").write_text(
+        json.dumps(_manifest(name="LibraryBP", pack_uuid=BP_UUID, module_type="data")),
+        encoding="utf-8",
+    )
+    world_dir = data / "worlds" / "TestWorld"
+    (world_dir / "world_behavior_packs.json").write_text(
+        json.dumps([{"pack_id": BP_UUID, "version": [1, 0, 0]}]),
+        encoding="utf-8",
+    )
+
+    me = login(client, "admin_one", "admin-password-12")
+    csrf = me["csrf_token"]
+
+    listed = client.get("/api/addons")
+    assert listed.status_code == 200, listed.text
+    addons = listed.json()["addons"]
+    match = next(a for a in addons if a["pack_uuid"] == BP_UUID)
+    addon_id = match["id"]
+
+    deleted = client.delete(
+        f"/api/addons/{addon_id}",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert deleted.status_code == 200, deleted.text
+    assert not live.exists(), "server /data pack folder must be removed"
+
+    bp_json = json.loads(
+        (world_dir / "world_behavior_packs.json").read_text(encoding="utf-8")
+    )
+    assert all(entry.get("pack_id") != BP_UUID for entry in bp_json)
+
+    again = client.get("/api/addons")
+    assert again.status_code == 200, again.text
+    assert all(a["pack_uuid"] != BP_UUID for a in again.json()["addons"])
