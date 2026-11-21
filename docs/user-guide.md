@@ -87,6 +87,7 @@ Creating or importing only **adds** a folder. Existing worlds stay put until you
 ## Server & console (admin)
 
 - Start/stop/restart the Bedrock container, edit safe `server.properties` keys, manage allowlist/ops.
+- **Gamemode / difficulty:** saving these also updates the active world's `level.dat` (Bedrock restarts briefly). Turn on **force-gamemode** so existing players pick up the new mode when they rejoin — `server.properties` alone does not override a creative import.
 - **Server** and **Home** show a live Bedrock container panel (Docker status/health, uptime, CPU/RAM/network, ports, mounts, safe env keys, and live `server.properties` highlights). Polls every few seconds.
 - Warnings surface problems like OOM kills, unhealthy healthchecks, or a set `LEVEL_NAME` env that can undo world switches.
 - Live console send + stream.

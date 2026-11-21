@@ -111,18 +111,19 @@ def update_properties(
     settings: SettingsDep,
     admin: AdminCsrfDep,
 ) -> PropertiesResponse:
-    """Update whitelisted server.properties keys (admin)."""
+    """Update whitelisted server.properties keys (admin).
 
-    values = server_props.write_properties(settings, body.updates)
-    record_audit(
+    Gamemode/difficulty also sync into the active world's level.dat.
+    """
+
+    result = server_service.update_properties(
         session,
-        action="server.properties_update",
+        settings,
+        updates=body.updates,
         user_id=admin.user.id,
-        details={"keys": sorted(body.updates.keys())},
         ip=get_client_ip(request),
     )
-    session.commit()
-    return PropertiesResponse(values=values, catalog=server_props.property_catalog())
+    return PropertiesResponse.model_validate(result)
 
 
 @router.get("/network", response_model=NetworkStatusResponse)

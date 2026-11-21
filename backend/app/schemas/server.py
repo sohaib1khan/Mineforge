@@ -74,6 +74,9 @@ class MessageResponse(BaseModel):
 class PropertiesResponse(BaseModel):
     values: dict[str, str]
     catalog: list[dict[str, Any]]
+    world_synced: bool = False
+    restarted: bool = False
+    note: str | None = None
 
 
 class PropertiesUpdateRequest(BaseModel):

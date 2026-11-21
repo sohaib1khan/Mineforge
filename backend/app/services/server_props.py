@@ -31,15 +31,22 @@ EDITABLE_PROPERTIES: dict[str, PropertySpec] = {
     ),
     "gamemode": PropertySpec(
         "gamemode",
-        "Default game mode for new players.",
+        "Default game mode. Also written into the active world's level.dat. "
+        "Turn on force-gamemode so joining players use it.",
         "enum",
         ("survival", "creative", "adventure"),
     ),
     "difficulty": PropertySpec(
         "difficulty",
-        "World difficulty.",
+        "World difficulty. Written to server.properties and the active world's "
+        "level.dat (server restarts briefly when either changes).",
         "enum",
         ("peaceful", "easy", "normal", "hard"),
+    ),
+    "force-gamemode": PropertySpec(
+        "force-gamemode",
+        "Force joining players onto the gamemode above (needed for existing players).",
+        "bool",
     ),
     "allow-cheats": PropertySpec(
         "allow-cheats", "Allow cheats / commands for operators.", "bool"

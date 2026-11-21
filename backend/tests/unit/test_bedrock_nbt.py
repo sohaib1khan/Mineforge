@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
-from app.services.bedrock_nbt import level_dat_insight, parse_bedrock_level_dat
+from app.services.bedrock_nbt import (
+    level_dat_insight,
+    parse_bedrock_level_dat,
+    patch_level_dat_ints,
+)
 
 FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "level.dat_min"
 
@@ -26,3 +31,16 @@ def test_level_dat_insight_fields() -> None:
     assert insight["seed"] == "123456789"
     assert insight["spawn"] == {"x": 10, "y": 64, "z": -20}
     assert insight["multiplayer"] is True
+
+
+def test_patch_level_dat_ints_updates_gametype(tmp_path: Path) -> None:
+    target = tmp_path / "level.dat"
+    shutil.copy(FIXTURE, target)
+    assert parse_bedrock_level_dat(target)["GameType"] == 1
+
+    patched = patch_level_dat_ints(target, {"GameType": 2}, uid=0, gid=0)
+    assert patched == ["GameType"]
+    again = parse_bedrock_level_dat(target)
+    assert again["GameType"] == 2
+    assert again["LevelName"] == "TestWorld"
+    assert again["RandomSeed"] == 123456789

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.core.config import Settings
-from app.services import server_props
+from app.core.errors import AppError
+from app.models.world import World
+from app.services import bedrock_nbt, server_props
 from app.services.audit import record_audit
 from app.services.docker_client import (
     ContainerRuntimeSnapshot,
@@ -17,6 +20,11 @@ from app.services.docker_client import (
 )
 from app.services.logwatch import get_server_started_at
 from app.services.players import list_online_players
+
+logger = logging.getLogger(__name__)
+
+GAMEMODE_TO_INT = {"survival": 0, "creative": 1, "adventure": 2}
+DIFFICULTY_TO_INT = {"peaceful": 0, "easy": 1, "normal": 2, "hard": 3}
 
 # Keys from server.properties useful on the status panel.
 _PROP_KEYS = (
@@ -212,3 +220,129 @@ def restart_server(
     get_docker_client(settings).restart()
     record_audit(session, action="server.restart", user_id=user_id, ip=ip)
     session.commit()
+
+
+def update_properties(
+    session: Session,
+    settings: Settings,
+    *,
+    updates: dict[str, str],
+    user_id: int,
+    ip: str | None,
+) -> dict[str, Any]:
+    """Write whitelisted server.properties and sync gamemode/difficulty to the world.
+
+    Bedrock keeps GameType/Difficulty in the active world's ``level.dat``. Editing
+    only ``server.properties`` leaves imported creative worlds stuck in creative,
+    so gamemode/difficulty changes also patch ``level.dat`` (server stopped briefly
+    while the file is written). When gamemode changes, ``force-gamemode`` defaults
+    to true so existing players pick up the mode on rejoin.
+
+    Returns:
+        Payload for PropertiesResponse including apply notes.
+
+    Raises:
+        AppError / ForbiddenError from validation, Docker, or level.dat patching.
+    """
+
+    pending = dict(updates)
+    if "gamemode" in pending and "force-gamemode" not in pending:
+        pending["force-gamemode"] = "true"
+
+    needs_world_sync = "gamemode" in pending or "difficulty" in pending
+    docker = get_docker_client(settings)
+    was_running = False
+    restarted = False
+    world_synced = False
+    patched_fields: list[str] = []
+    notes: list[str] = []
+
+    if needs_world_sync:
+        was_running = bool(docker.status().running)
+        if was_running:
+            docker.stop()
+
+    try:
+        values = server_props.write_properties(settings, pending)
+        if needs_world_sync:
+            level_name = (values.get("level-name") or "").strip()
+            if not level_name:
+                raise AppError("level-name is not set; cannot sync world settings")
+            level_dat = settings.data_dir / "worlds" / level_name / "level.dat"
+            patch: dict[str, int] = {}
+            if "gamemode" in pending:
+                patch["GameType"] = GAMEMODE_TO_INT[pending["gamemode"]]
+            if "difficulty" in pending:
+                patch["Difficulty"] = DIFFICULTY_TO_INT[pending["difficulty"]]
+            if level_dat.is_file():
+                patched_fields = bedrock_nbt.patch_level_dat_ints(
+                    level_dat,
+                    patch,
+                    uid=settings.bedrock_uid,
+                    gid=settings.bedrock_gid,
+                    strict=False,
+                )
+                world_synced = bool(patched_fields)
+                skipped = [key for key in patch if key not in patched_fields]
+                if skipped:
+                    notes.append(
+                        "level.dat was missing "
+                        + ", ".join(skipped)
+                        + "; those keys were left to server.properties only."
+                    )
+            else:
+                notes.append(
+                    "level.dat is not on disk yet; properties will apply when "
+                    "Bedrock creates the world."
+                )
+
+            world = session.exec(
+                select(World).where(World.folder_name == level_name)
+            ).first()
+            if world is not None:
+                if "gamemode" in pending:
+                    world.gamemode = pending["gamemode"]
+                if "difficulty" in pending:
+                    world.difficulty = pending["difficulty"]
+                session.add(world)
+    finally:
+        if was_running:
+            docker.start()
+            restarted = True
+
+    if world_synced:
+        notes.append(
+            "Synced GameType/Difficulty in the active world's level.dat"
+            + (f" ({', '.join(patched_fields)})" if patched_fields else "")
+            + "."
+        )
+    if "gamemode" in pending:
+        notes.append(
+            "force-gamemode is on — players should rejoin to pick up the new mode."
+        )
+    if restarted:
+        notes.append("Bedrock was restarted to apply world settings safely.")
+
+    record_audit(
+        session,
+        action="server.properties_update",
+        user_id=user_id,
+        details={
+            "keys": sorted(pending.keys()),
+            "world_synced": world_synced,
+            "restarted": restarted,
+            "patched_fields": patched_fields,
+        },
+        ip=ip,
+    )
+    session.commit()
+    note = " ".join(notes) if notes else None
+    if note:
+        logger.info("Properties update: %s", note)
+    return {
+        "values": values,
+        "catalog": server_props.property_catalog(),
+        "world_synced": world_synced,
+        "restarted": restarted,
+        "note": note,
+    }

@@ -19,6 +19,7 @@ UI: http://localhost:18080 (`MINEFORGE_HOST_PORT`).
 - Socket proxy is always started with the app.
 - Bedrock is optional until you run `./deploy/mf up bedrock`.
 - Do **not** set `LEVEL_NAME` / `GAMEMODE` / `DIFFICULTY` on the Bedrock service env — MineForge owns those in `server.properties`.
+- Saving **gamemode** / **difficulty** in the panel also patches the active world's `level.dat` `GameType` / `Difficulty` (server stopped briefly). Gamemode saves default `force-gamemode=true` so joiners leave creative imports behind.
 - Console commands use Docker attach stdin.
 
 ## Phase 3 notes

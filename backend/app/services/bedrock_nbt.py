@@ -1,16 +1,20 @@
-"""Minimal little-endian NBT reader for Bedrock ``level.dat``.
+"""Minimal little-endian NBT helpers for Bedrock ``level.dat``.
 
-Only implements the tag types needed for world insight (compound, list,
-string, numeric). Does not write NBT.
+Reads compounds for world insight and can patch root-level TAG_INT fields
+(e.g. GameType / Difficulty) in place without a full rewrite.
 """
 
 from __future__ import annotations
 
+import logging
+import os
 import struct
 from pathlib import Path
 from typing import Any
 
 from app.core.errors import AppError
+
+logger = logging.getLogger(__name__)
 
 TAG_END = 0
 TAG_BYTE = 1
@@ -130,6 +134,85 @@ def parse_bedrock_level_dat(path: Path) -> dict[str, Any]:
         raise AppError("level.dat root is not a compound")
     _ = reader.string()  # root name (often empty)
     return _read_compound(reader)
+
+
+def _collect_root_int_offsets(reader: _Reader, found: dict[str, int]) -> None:
+    """Walk a compound and record payload offsets for root-level TAG_INT fields."""
+
+    while True:
+        tag_type = reader.u8()
+        if tag_type == TAG_END:
+            return
+        name = reader.string()
+        if tag_type == TAG_INT:
+            found[name] = reader.offset
+            _ = reader.i32()
+            continue
+        # Skip nested payloads without recording nested names (avoid collisions).
+        _ = _read_payload(reader, tag_type)
+
+
+def patch_level_dat_ints(
+    path: Path,
+    updates: dict[str, int],
+    *,
+    uid: int | None = None,
+    gid: int | None = None,
+    strict: bool = True,
+) -> list[str]:
+    """Patch root-level TAG_INT fields in a Bedrock ``level.dat`` in place.
+
+    Payload size is unchanged, so the 8-byte length header stays valid. Callers
+    must not write while Bedrock has the world loaded (stop the server first).
+
+    Returns:
+        Names of fields that were written.
+
+    Raises:
+        AppError: missing file, corrupt NBT, or (when ``strict``) a requested
+        field is absent.
+    """
+
+    if not updates:
+        return []
+    if not path.is_file():
+        raise AppError("level.dat not found", status_code=404)
+    raw = path.read_bytes()
+    if len(raw) < 8:
+        raise AppError("level.dat too small")
+    reader = _Reader(raw, offset=8)
+    tag_type = reader.u8()
+    if tag_type != TAG_COMPOUND:
+        raise AppError("level.dat root is not a compound")
+    _ = reader.string()
+    found: dict[str, int] = {}
+    _collect_root_int_offsets(reader, found)
+
+    missing = [key for key in updates if key not in found]
+    if missing and strict:
+        raise AppError(
+            "level.dat is missing required field(s): " + ", ".join(sorted(missing))
+        )
+    if missing:
+        logger.warning("level.dat missing field(s) skipped: %s", ", ".join(missing))
+
+    data = bytearray(raw)
+    patched: list[str] = []
+    for key, value in updates.items():
+        offset = found.get(key)
+        if offset is None:
+            continue
+        struct.pack_into("<i", data, offset, int(value))
+        patched.append(key)
+    if not patched:
+        return []
+    path.write_bytes(data)
+    if uid is not None and gid is not None:
+        try:
+            os.chown(path, uid, gid)
+        except PermissionError:
+            logger.warning("Could not chown %s to %s:%s", path, uid, gid)
+    return patched
 
 
 def level_dat_insight(path: Path) -> dict[str, Any]:

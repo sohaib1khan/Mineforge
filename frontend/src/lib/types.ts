@@ -84,6 +84,9 @@ export type PropertyCatalogItem = {
 export type PropertiesResponse = {
   values: Record<string, string>;
   catalog: PropertyCatalogItem[];
+  world_synced?: boolean;
+  restarted?: boolean;
+  note?: string | null;
 };
 
 export type ConsoleLinesResponse = {

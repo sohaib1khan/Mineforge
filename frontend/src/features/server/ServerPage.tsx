@@ -107,9 +107,14 @@ export function ServerPage() {
     try {
       const saved = await updateProperties(updates);
       setDraftProps(saved.values);
-      setMessage("Properties saved. Restart the server for some keys to apply.");
+      setMessage(
+        saved.note?.trim() ||
+          "Properties saved. Restart the server for some keys to apply.",
+      );
       setError(null);
       await queryClient.invalidateQueries({ queryKey: ["server-properties"] });
+      await queryClient.invalidateQueries({ queryKey: ["server-status"] });
+      await queryClient.invalidateQueries({ queryKey: ["worlds"] });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Save failed");
     }
