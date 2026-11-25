@@ -78,6 +78,10 @@ class ParsedPack:
     needs_beta_apis: bool
     dependencies: list[str]
     root: Path
+    min_engine_version: list[int] | None = None
+
+
+PROFILE_MANAGED_MARKER = ".mineforge-addon-profile"
 
 
 def set_apply_fail_hook(hook: Callable[[], None] | None) -> None:
@@ -233,12 +237,19 @@ def _repair_localized_names(session: Session, settings: Settings) -> None:
 
 
 def _sync_world_pack_links(session: Session, settings: Settings) -> None:
-    """Ensure WorldAddon rows exist for packs listed in each world's pack JSON."""
+    """Bootstrap WorldAddon rows from pack JSON for worlds without a saved profile.
+
+    Once MineForge has written ``.mineforge-addon-profile`` for a world, the DB
+    profile is authoritative — do not recreate enabled rows from stale JSON
+    (that undoes Save / deselect across page refresh).
+    """
 
     worlds = list(session.exec(select(World)).all())
     for world in worlds:
         folder = worlds_service.world_path(settings, world.folder_name)
         if not folder.is_dir() or world.id is None:
+            continue
+        if (folder / PROFILE_MANAGED_MARKER).is_file():
             continue
         order = 0
         for json_name in ("world_behavior_packs.json", "world_resource_packs.json"):
@@ -290,6 +301,19 @@ def _sync_world_pack_links(session: Session, settings: Settings) -> None:
                         )
                     )
                 order += 1
+
+
+def _mark_world_profile_managed(settings: Settings, folder_name: str) -> None:
+    """Record that MineForge owns this world's add-on profile (skip JSON re-import)."""
+
+    folder = worlds_service.world_path(settings, folder_name)
+    folder.mkdir(parents=True, exist_ok=True)
+    marker = folder / PROFILE_MANAGED_MARKER
+    marker.write_text("managed-by-mineforge\n", encoding="utf-8")
+    try:
+        os.chown(marker, settings.bedrock_uid, settings.bedrock_gid)
+    except PermissionError:
+        logger.warning("Could not chown addon profile marker %s", marker)
 
 
 def get_addon(session: Session, addon_id: int) -> Addon:
@@ -600,6 +624,7 @@ def get_world_profile(session: Session, world_id: int) -> list[dict[str, Any]]:
 
 def set_world_profile(
     session: Session,
+    settings: Settings,
     *,
     world_id: int,
     entries: list[dict[str, Any]],
@@ -607,7 +632,11 @@ def set_world_profile(
     role: UserRole,
     ip: str | None,
 ) -> list[dict[str, Any]]:
-    """Replace a world's enabled add-on profile (does not apply to disk yet)."""
+    """Replace a world's add-on profile and write pack JSON so refresh cannot revive packs.
+
+    Does not restart Bedrock — use Apply for a full pack sync + restart. Writing
+    ``world_*_packs.json`` here keeps list/import from re-enabling unchecked packs.
+    """
 
     if role != UserRole.ADMIN:
         raise ForbiddenError("Admin access required")
@@ -633,6 +662,9 @@ def set_world_profile(
                 load_order=int(entry.get("load_order", idx)),
             )
         )
+    session.flush()
+    write_merged_pack_jsons(session, settings, world.folder_name, world_id)
+    _mark_world_profile_managed(settings, world.folder_name)
     record_audit(
         session,
         action="addon.profile_set",
@@ -904,6 +936,13 @@ def parse_manifest(pack_root: Path) -> ParsedPack:
         if isinstance(dep, dict) and dep.get("uuid"):
             deps.append(str(dep["uuid"]).lower())
 
+    min_engine_raw = header.get("min_engine_version")
+    min_engine: list[int] | None = None
+    if isinstance(min_engine_raw, list) and min_engine_raw:
+        min_engine = [int(x) for x in min_engine_raw[:3]]
+        while len(min_engine) < 3:
+            min_engine.append(0)
+
     return ParsedPack(
         name=name,
         pack_uuid=pack_uuid.lower(),
@@ -914,7 +953,146 @@ def parse_manifest(pack_root: Path) -> ParsedPack:
         needs_beta_apis=needs_beta,
         dependencies=deps,
         root=pack_root,
+        min_engine_version=min_engine,
     )
+
+
+def _parse_bedrock_version(raw: str | None) -> list[int] | None:
+    """Parse VERSION env like ``1.26.61.1`` into ``[1, 26, 61]`` for comparisons."""
+
+    if not raw:
+        return None
+    cleaned = raw.strip()
+    if not cleaned or cleaned.upper() in {"LATEST", "PREVIEW"}:
+        return None
+    parts: list[int] = []
+    for piece in cleaned.split("."):
+        if not piece.isdigit():
+            break
+        parts.append(int(piece))
+        if len(parts) == 3:
+            break
+    if len(parts) < 2:
+        return None
+    while len(parts) < 3:
+        parts.append(0)
+    return parts
+
+
+def _version_tuple_at_least(current: list[int], required: list[int]) -> bool:
+    return tuple(current[:3]) >= tuple(required[:3])
+
+
+def world_addon_compatibility(
+    session: Session, settings: Settings, world_id: int
+) -> list[dict[str, Any]]:
+    """Heuristic compatibility notes for packs vs this world / Bedrock build.
+
+    Checks encrypted Marketplace packs, Beta APIs, missing BP/RP pairs, unmet
+    dependency UUIDs, and ``min_engine_version`` vs the container VERSION env.
+    This is not a Mojang Marketplace cert — it flags likely breakage only.
+    """
+
+    world = session.get(World, world_id)
+    if world is None:
+        raise NotFoundError("World not found")
+
+    server_version: list[int] | None = None
+    try:
+        info = get_docker_client(settings).version_info()
+        server_version = _parse_bedrock_version(info.version_env)
+    except Exception:
+        server_version = None
+
+    library_uuids = {
+        a.pack_uuid.lower() for a in session.exec(select(Addon)).all() if a.pack_uuid
+    }
+    rows = list(
+        session.exec(
+            select(WorldAddon)
+            .where(
+                WorldAddon.world_id == world_id,
+                WorldAddon.enabled.is_(True),  # type: ignore[union-attr]
+            )
+            .order_by(WorldAddon.load_order, WorldAddon.id)
+        ).all()
+    )
+    warnings: list[dict[str, Any]] = []
+    for row in rows:
+        addon = get_addon(session, row.addon_id)
+        display = addon.name
+        if addon.encrypted:
+            warnings.append(
+                {
+                    "addon_id": addon.id,
+                    "addon_name": display,
+                    "level": "error",
+                    "code": "encrypted",
+                    "message": "Encrypted / Marketplace pack — Bedrock dedicated servers cannot load it.",
+                }
+            )
+        if addon.missing_pair:
+            warnings.append(
+                {
+                    "addon_id": addon.id,
+                    "addon_name": display,
+                    "level": "warning",
+                    "code": "missing_pair",
+                    "message": "Missing paired behavior/resource pack in the library.",
+                }
+            )
+        if addon.needs_beta_apis:
+            warnings.append(
+                {
+                    "addon_id": addon.id,
+                    "addon_name": display,
+                    "level": "warning",
+                    "code": "needs_beta_apis",
+                    "message": "Requires Beta APIs / experiments — enable matching experiments in the world.",
+                }
+            )
+        root = packs_library_dir(settings) / addon.storage_path
+        if root.is_dir():
+            try:
+                parsed = parse_manifest(root)
+            except AppError:
+                parsed = None
+            if parsed is not None:
+                for dep in parsed.dependencies:
+                    if (
+                        dep.lower() not in library_uuids
+                        and dep.lower() != addon.pack_uuid
+                    ):
+                        warnings.append(
+                            {
+                                "addon_id": addon.id,
+                                "addon_name": display,
+                                "level": "warning",
+                                "code": "missing_dependency",
+                                "message": f"Depends on pack UUID {dep} which is not in the library.",
+                            }
+                        )
+                if (
+                    parsed.min_engine_version
+                    and server_version
+                    and not _version_tuple_at_least(
+                        server_version, parsed.min_engine_version
+                    )
+                ):
+                    need = ".".join(str(x) for x in parsed.min_engine_version)
+                    have = ".".join(str(x) for x in server_version)
+                    warnings.append(
+                        {
+                            "addon_id": addon.id,
+                            "addon_name": display,
+                            "level": "error",
+                            "code": "min_engine_version",
+                            "message": (
+                                f"Pack wants Bedrock ≥ {need}; server VERSION is {have}."
+                            ),
+                        }
+                    )
+    return warnings
 
 
 def _resolve_pack_display_name(pack_root: Path, raw_name: str) -> str:
@@ -1004,6 +1182,7 @@ def _run_apply(
 
         ops.append_log(session, operation_id, "Writing merged pack JSON profiles")
         write_merged_pack_jsons(session, settings, world_folder, world_id)
+        _mark_world_profile_managed(settings, world_folder)
         applied = True
 
         if _apply_fail_hook is not None:

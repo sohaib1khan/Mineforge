@@ -98,6 +98,7 @@ Creating or importing only **adds** a folder. Existing worlds stay put until you
 - Admins can **Delete** a pack to remove it from the library and from Bedrock `/data` pack folders (so it does not reappear on refresh). Worlds that listed it drop that pack UUID from their pack JSON.
 - Admins can **Backup library** / **Restore** under Add-ons to snapshot every pack plus per-world assignments.
 - Flags warn about missing BP/RP halves, Marketplace/encrypted packs, and Beta APIs.
-- Per-world tab: enable packs, **Save profile**, then **Apply** or **Test**.
+- Per-world tab: enable packs, **Save profile** (writes `world_*_packs.json` so refresh cannot revive unchecked packs), then **Apply** or **Test** (Apply also saves the current checkboxes first, syncs packs into `/data`, and restarts Bedrock).
+- Compatibility panel (heuristic): encrypted/Marketplace, missing pair, Beta APIs, missing dependency UUIDs, and pack `min_engine_version` vs the Bedrock container `VERSION`.
 - Test mode auto-reverts after the configured minutes unless you tap **Keep test**.
 - World-embedded packs from imports are always kept when applying profiles.

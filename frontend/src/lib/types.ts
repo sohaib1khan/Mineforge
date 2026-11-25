@@ -237,10 +237,19 @@ export type WorldAddonEntry = {
   addon?: AddonResponse | null;
 };
 
+export type AddonCompatibilityNote = {
+  addon_id: number;
+  addon_name: string;
+  level: string;
+  code: string;
+  message: string;
+};
+
 export type WorldProfileResponse = {
   world_id: number;
   entries: WorldAddonEntry[];
   download_size: { enabled_pack_bytes?: number; enabled_pack_count?: number };
+  compatibility?: AddonCompatibilityNote[];
 };
 
 export type AddonApplyResponse = {

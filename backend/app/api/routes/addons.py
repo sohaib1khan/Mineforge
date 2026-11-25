@@ -229,6 +229,9 @@ def get_world_profile(
         world_id=world_id,
         entries=[WorldAddonEntry.model_validate(e) for e in entries],
         download_size=addon_service.world_download_size(session, settings, world_id),
+        compatibility=addon_service.world_addon_compatibility(
+            session, settings, world_id
+        ),
     )
 
 
@@ -243,6 +246,7 @@ def put_world_profile(
 ) -> WorldProfileResponse:
     entries = addon_service.set_world_profile(
         session,
+        settings,
         world_id=world_id,
         entries=[e.model_dump() for e in body.entries],
         user_id=auth.user.id,  # type: ignore[arg-type]
@@ -253,6 +257,9 @@ def put_world_profile(
         world_id=world_id,
         entries=[WorldAddonEntry.model_validate(e) for e in entries],
         download_size=addon_service.world_download_size(session, settings, world_id),
+        compatibility=addon_service.world_addon_compatibility(
+            session, settings, world_id
+        ),
     )
 
 

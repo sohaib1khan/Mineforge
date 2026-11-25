@@ -59,6 +59,11 @@ function flagLabel(flag: string): string {
   }
 }
 
+/** Strip Minecraft § formatting codes for readable UI labels. */
+function stripMcFormatting(name: string): string {
+  return name.replace(/§./g, "").trim() || name;
+}
+
 export function AddonsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -179,10 +184,14 @@ export function AddonsPage() {
 
   const saveMutation = useMutation({
     mutationFn: () => saveWorldProfile(worldId!, draft),
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       setDraft(data.entries);
       setError(null);
-      toast.push("Profile saved.", "success");
+      toast.push(
+        "Profile saved to the world pack list. Use Apply to sync packs into /data and restart Bedrock.",
+        "success",
+      );
+      await queryClient.invalidateQueries({ queryKey: ["addon-profile", worldId] });
     },
     onError: (err: Error) => {
       setError(err.message);
@@ -191,12 +200,18 @@ export function AddonsPage() {
   });
 
   const applyMutation = useMutation({
-    mutationFn: (testMode: boolean) => applyWorldAddons(worldId!, testMode),
+    mutationFn: async (testMode: boolean) => {
+      // Always persist the current draft first so Apply cannot ignore unchecked packs.
+      const saved = await saveWorldProfile(worldId!, draft);
+      setDraft(saved.entries);
+      return applyWorldAddons(worldId!, testMode);
+    },
     onSuccess: (data, testMode) => {
       setError(null);
       setOperationId(data.operation.id);
       toast.push(testMode ? "Test apply started." : "Apply started.", "info");
       if (testMode && worldId != null) setPendingWorldId(worldId);
+      void queryClient.invalidateQueries({ queryKey: ["addon-profile", worldId] });
     },
     onError: (err: Error) => {
       setError(err.message);
@@ -270,11 +285,14 @@ export function AddonsPage() {
           id={`addon-${a.id}`}
         />
         <label htmlFor={`addon-${a.id}`} className="min-w-0 flex-1">
-          <span className={active ? "text-text" : "text-muted"}>{a.name}</span>{" "}
+          <span className={active ? "text-text" : "text-muted"}>
+            {stripMcFormatting(a.name)}
+          </span>{" "}
           <span className="text-muted">
             ({a.kind}
             {a.encrypted ? ", encrypted" : ""}
-            {a.missing_pair ? ", missing pair" : ""})
+            {a.missing_pair ? ", missing pair" : ""}
+            {a.needs_beta_apis ? ", beta APIs" : ""})
           </span>
         </label>
         <span
@@ -302,8 +320,9 @@ export function AddonsPage() {
       <div className="space-y-2 page-enter">
         <h1 className="font-pixel text-2xl text-primary mf-title-glow">Add-ons</h1>
         <p className="max-w-xl text-muted leading-relaxed">
-          Upload packs, assign them per world, then Apply or Test (auto-reverts if you
-          do not keep the change). Admins can also backup and restore the whole library.
+          Upload packs, assign them per world, then Save (writes the world pack list)
+          and Apply or Test (syncs into Bedrock and restarts). Test auto-reverts unless
+          you Keep. Admins can also backup and restore the whole library.
         </p>
       </div>
 
@@ -407,7 +426,7 @@ export function AddonsPage() {
                     >
                       <div className="min-w-0 space-y-1">
                         <p className="font-medium truncate">
-                          {a.name}{" "}
+                          {stripMcFormatting(a.name)}{" "}
                           <span className="text-muted font-normal text-sm">
                             {a.kind} · v{a.version}
                           </span>
@@ -566,6 +585,35 @@ export function AddonsPage() {
                 ({profileQuery.data?.download_size.enabled_pack_count ?? enabledCount}{" "}
                 packs)
               </p>
+              {(profileQuery.data?.compatibility?.length ?? 0) > 0 ? (
+                <div
+                  className="space-y-2 rounded-md border border-warning/40 bg-warning/10 p-3"
+                  role="status"
+                >
+                  <p className="text-sm font-medium text-warning">
+                    Compatibility checks ({profileQuery.data?.compatibility?.length})
+                  </p>
+                  <ul className="space-y-1 text-sm text-muted">
+                    {(profileQuery.data?.compatibility ?? []).map((note) => (
+                      <li key={`${note.addon_id}-${note.code}-${note.message}`}>
+                        <span
+                          className={
+                            note.level === "error" ? "text-danger" : "text-warning"
+                          }
+                        >
+                          {note.level === "error" ? "Error" : "Warning"}
+                        </span>
+                        {": "}
+                        {stripMcFormatting(note.addon_name)} — {note.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : selectedWorld && profileQuery.isFetched ? (
+                <p className="text-sm text-muted">
+                  No compatibility warnings for the enabled packs vs this Bedrock build.
+                </p>
+              ) : null}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-muted">
                   Active {enabledCount} · Inactive {addons.length - enabledCount}

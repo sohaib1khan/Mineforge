@@ -44,10 +44,19 @@ class WorldAddonEntry(BaseModel):
     addon: AddonResponse | None = None
 
 
+class AddonCompatibilityNote(BaseModel):
+    addon_id: int
+    addon_name: str
+    level: str
+    code: str
+    message: str
+
+
 class WorldProfileResponse(BaseModel):
     world_id: int
     entries: list[WorldAddonEntry]
     download_size: dict[str, int] = Field(default_factory=dict)
+    compatibility: list[AddonCompatibilityNote] = Field(default_factory=list)
 
 
 class WorldProfileUpdateRequest(BaseModel):

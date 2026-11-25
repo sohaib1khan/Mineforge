@@ -189,8 +189,10 @@ def test_rp_only_upload_shows_missing_pair_warning(
     addons = resp.json()["addons"]
     assert len(addons) == 1
     assert addons[0]["kind"] == "resource"
-    assert addons[0]["missing_pair"] is True
-    assert "missing_pair" in addons[0]["flags"]
+    # Standalone resource packs are normal; missing_pair only when a declared
+    # BP dependency UUID is absent from the library.
+    assert addons[0]["missing_pair"] is False
+    assert "missing_pair" not in addons[0]["flags"]
 
 
 def test_apply_preserves_embedded_packs_and_test_auto_reverts(
@@ -228,10 +230,12 @@ def test_apply_preserves_embedded_packs_and_test_auto_reverts(
     )
     assert profile.status_code == 200, profile.text
 
-    # Snapshot original pack JSON (none) then apply in test mode
+    # Save now writes merged pack JSON (embedded + profile) without restart.
     world_dir = data / "worlds" / "TestWorld"
     bp_json = world_dir / "world_behavior_packs.json"
-    assert not bp_json.exists() or EMBED_UUID not in bp_json.read_text(encoding="utf-8")
+    saved_ids = {e["pack_id"] for e in json.loads(bp_json.read_text(encoding="utf-8"))}
+    assert EMBED_UUID in saved_ids
+    assert BP_UUID in saved_ids
 
     applied = client.post(
         f"/api/addons/worlds/{world['id']}/apply",
@@ -267,6 +271,65 @@ def test_apply_preserves_embedded_packs_and_test_auto_reverts(
         time.sleep(0.2)
     assert json.loads(bp_json.read_text(encoding="utf-8")) == []
     assert addon_service.list_pending_tests() == []
+
+
+def test_save_profile_disable_survives_list_refresh(
+    client: TestClient, admin_user, app_data_dir: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Unchecking a pack + Save must not be undone by import/sync on refresh."""
+
+    data = app_data_dir.parent / "data"
+    _seed_world(data)
+    monkeypatch.setenv("MINEFORGE_DATA_DIR", str(data))
+    clear_settings_cache()
+    reset_locks_for_tests()
+    set_docker_client_override(FakeDocker(running=False))
+
+    pack = tmp_path / "lib_bp.mcpack"
+    _write_pack_zip(pack, name="LibraryBP", pack_uuid=BP_UUID, module_type="data")
+
+    me = login(client, "admin_one", "admin-password-12")
+    csrf = me["csrf_token"]
+    with pack.open("rb") as handle:
+        uploaded = client.post(
+            "/api/addons/upload",
+            headers={"X-CSRF-Token": csrf},
+            files={"file": ("lib_bp.mcpack", handle, "application/zip")},
+        )
+    assert uploaded.status_code == 200, uploaded.text
+    addon_id = uploaded.json()["addons"][0]["id"]
+
+    worlds = client.get("/api/worlds").json()["worlds"]
+    world = next(w for w in worlds if w["folder_name"] == "TestWorld")
+    world_id = world["id"]
+
+    enabled = client.put(
+        f"/api/addons/worlds/{world_id}",
+        headers={"X-CSRF-Token": csrf},
+        json={"entries": [{"addon_id": addon_id, "enabled": True, "load_order": 0}]},
+    )
+    assert enabled.status_code == 200, enabled.text
+    world_dir = data / "worlds" / "TestWorld"
+    assert (world_dir / ".mineforge-addon-profile").is_file()
+    bp_path = world_dir / "world_behavior_packs.json"
+    assert BP_UUID in bp_path.read_text(encoding="utf-8")
+
+    cleared = client.put(
+        f"/api/addons/worlds/{world_id}",
+        headers={"X-CSRF-Token": csrf},
+        json={"entries": []},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["entries"] == []
+    assert BP_UUID not in bp_path.read_text(encoding="utf-8")
+
+    # Simulate page refresh: list addons (import + sync) then reload profile
+    listed = client.get("/api/addons")
+    assert listed.status_code == 200, listed.text
+    again = client.get(f"/api/addons/worlds/{world_id}")
+    assert again.status_code == 200, again.text
+    assert again.json()["entries"] == []
+    assert "compatibility" in again.json()
 
 
 def test_delete_addon_removes_server_copy_and_does_not_reimport(
