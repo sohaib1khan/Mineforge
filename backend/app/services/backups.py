@@ -664,16 +664,47 @@ def _file_map_covers_db(file_map: dict[str, int], world_folder: str) -> bool:
     return False
 
 
+def _save_query_world_folders(file_map: dict[str, int]) -> set[str]:
+    """Infer world folder names from save-query relative paths."""
+
+    folders: set[str] = set()
+    for rel in file_map:
+        normalized = rel.replace("\\", "/").lstrip("/")
+        if normalized.startswith("worlds/"):
+            normalized = normalized[len("worlds/") :]
+        head = normalized.split("/", 1)[0].strip()
+        if head and head not in {"db", "behavior_packs", "resource_packs"}:
+            folders.add(head)
+    return folders
+
+
+def _assert_save_query_matches_world(
+    file_map: dict[str, int], world_folder: str
+) -> None:
+    """Fail fast when Bedrock's loaded world != the folder MineForge is backing up."""
+
+    found = _save_query_world_folders(file_map)
+    if not found or world_folder in found:
+        return
+    listed = ", ".join(sorted(found))
+    raise AppError(
+        f"Bedrock save query listed world folder(s) [{listed}] but MineForge "
+        f"expected {world_folder!r}. The running server is out of sync with "
+        f"server.properties level-name — restart Bedrock, then retry."
+    )
+
+
 def _poll_save_query_files(settings: Settings, world_dir: Path) -> dict[str, int]:
     """Re-issue ``save query`` until Bedrock reports files ready to copy.
 
     Raises:
-        AppError: on timeout or empty ready response.
+        AppError: on timeout, empty ready response, or world-folder desync.
     """
 
     deadline = time.monotonic() + SAVE_QUERY_TIMEOUT
     last_lines: list[str] = []
     require_db = (world_dir / "db").is_dir()
+    desync_seen: dict[str, int] | None = None
 
     while time.monotonic() < deadline:
         mark = _console_mark()
@@ -704,7 +735,10 @@ def _poll_save_query_files(settings: Settings, world_dir: Path) -> dict[str, int
                 time.sleep(SAVE_QUERY_POLL_INTERVAL)
                 continue
             if require_db and not _file_map_covers_db(file_map, world_dir.name):
-                # Ready marker without db/ is incomplete; keep polling.
+                desync_seen = file_map
+                # Wrong world still reports "ready" — don't spin the full timeout.
+                if _save_query_world_folders(file_map):
+                    _assert_save_query_matches_world(file_map, world_dir.name)
                 time.sleep(SAVE_QUERY_POLL_INTERVAL)
                 continue
             return file_map
@@ -715,12 +749,18 @@ def _poll_save_query_files(settings: Settings, world_dir: Path) -> dict[str, int
             not require_db or _file_map_covers_db(file_map, world_dir.name)
         ):
             return file_map
+        if file_map and require_db:
+            desync_seen = file_map
+            if _save_query_world_folders(file_map):
+                _assert_save_query_matches_world(file_map, world_dir.name)
 
         time.sleep(SAVE_QUERY_POLL_INTERVAL)
 
     file_map = parse_save_query_files(last_lines)
     if file_map and (not require_db or _file_map_covers_db(file_map, world_dir.name)):
         return file_map
+    if desync_seen is not None:
+        _assert_save_query_matches_world(desync_seen, world_dir.name)
     raise AppError("Timed out waiting for save query file list")
 
 
@@ -1082,10 +1122,15 @@ def _wait_for_console(
 
 
 def _wait_for_server_healthy(settings: Settings, *, timeout: float) -> None:
-    """Wait until container is running and a start marker appears (or timeout)."""
+    """Wait until container is running and a start marker appears (or timeout).
+
+    Ignores containers that were already running before this wait began so a
+    concurrent restart race cannot fake a successful world load.
+    """
 
     docker = get_docker_client(settings)
     deadline = time.monotonic() + timeout
+    wait_started = datetime.now(UTC)
     mark = _console_mark()
     while time.monotonic() < deadline:
         status = docker.status()
@@ -1095,13 +1140,19 @@ def _wait_for_server_healthy(settings: Settings, *, timeout: float) -> None:
         lines = _lines_after_mark(mark)
         if any(any(m in ln.lower() for m in SERVER_STARTED_MARKERS) for ln in lines):
             return
-        # If running for a bit without marker (fake docker), accept running
+        # Test fakes often have no log lines — accept only if started recently.
         if status.started_at is not None:
             started = status.started_at
             if started.tzinfo is None:
                 started = started.replace(tzinfo=UTC)
-            if (datetime.now(UTC) - started).total_seconds() > 5 and not lines:
-                # Test fakes often have no log lines — accept running after grace
+            started_during_wait = started >= (wait_started - timedelta(seconds=2))
+            age = (datetime.now(UTC) - started).total_seconds()
+            if (
+                started_during_wait
+                and age > 5
+                and not lines
+                and (datetime.now(UTC) - wait_started).total_seconds() > 5
+            ):
                 return
         time.sleep(0.5)
     # Final check: running is enough with warning for Phase 3 unit fakes

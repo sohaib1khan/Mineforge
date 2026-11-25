@@ -346,6 +346,24 @@ def _run_switch(
         elif skip_countdown:
             ops.append_log(session, operation_id, "Countdown skipped by admin")
 
+        # Cancel pending addon test reverts — they stop/start Bedrock and race us.
+        try:
+            from app.services import addons as addons_service
+
+            cancelled = addons_service.cancel_all_pending_tests(
+                reason="world switch started"
+            )
+            if cancelled:
+                ops.append_log(
+                    session,
+                    operation_id,
+                    f"Cancelled {cancelled} pending add-on test revert(s)",
+                )
+        except Exception as cancel_exc:
+            ops.append_log(
+                session, operation_id, f"Pending test cancel warning: {cancel_exc}"
+            )
+
         # 3) Backup current world
         if from_folder and from_world_id is not None:
             from_path = worlds_service.world_path(settings, from_folder)
@@ -405,7 +423,27 @@ def _run_switch(
         if _switch_fail_hook is not None:
             _switch_fail_hook()
 
-        # 6) Start + health (always start so the new world loads)
+        # 6) Stop (again) + start so level-name is always loaded fresh.
+        # A concurrent addon test-revert can restart Bedrock between our earlier
+        # stop and this point; docker.start() alone would be a no-op and leave
+        # the previous world loaded while server.properties already changed.
+        ops.append_log(
+            session,
+            operation_id,
+            "Ensuring Bedrock is stopped before loading the new world",
+        )
+        try:
+            if docker.status().running:
+                try:
+                    console_service.send_command(
+                        settings, "stop", actor="switch-reload"
+                    )
+                    time.sleep(1)
+                except Exception:
+                    pass
+                docker.stop(timeout=45)
+        except Exception as stop_exc:
+            ops.append_log(session, operation_id, f"Pre-start stop warning: {stop_exc}")
         ops.append_log(session, operation_id, "Starting Bedrock")
         docker.start()
         backup_service_wait_healthy(settings, session, operation_id)

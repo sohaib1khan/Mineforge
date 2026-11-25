@@ -183,6 +183,12 @@ def set_status(
     return op
 
 
+def is_busy() -> bool:
+    """True when the process lock is held (another operation is running)."""
+
+    return _process_lock.locked()
+
+
 def acquire_lock(session: Session, operation_id: int) -> None:
     """Acquire the global operation lock for this job.
 

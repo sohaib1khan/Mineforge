@@ -18,7 +18,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -787,7 +787,14 @@ def keep_test(
 def revert_test_now(
     session: Session, settings: Settings, *, world_id: int, user_id: int | None
 ) -> None:
-    """Immediately revert a pending test (or call from timer)."""
+    """Immediately revert a pending test (or call from timer).
+
+    Refuses to stop/start Bedrock while another operation holds the global lock
+    (e.g. world switch) — callers should reschedule instead of racing.
+    """
+
+    if ops.is_busy():
+        raise AppError("Another operation is running; deferring add-on test revert")
 
     with _pending_lock:
         pending = _pending_tests.pop(world_id, None)
@@ -830,6 +837,35 @@ def list_pending_tests() -> list[dict[str, Any]]:
             }
             for wid, p in _pending_tests.items()
         ]
+
+
+def cancel_all_pending_tests(*, reason: str) -> int:
+    """Cancel timers for all pending test reverts without restoring files.
+
+    Used when a world switch starts so auto-revert cannot restart Bedrock mid-switch.
+    Returns the number of cancelled pending tests.
+    """
+
+    with _pending_lock:
+        pending_items = list(_pending_tests.items())
+        _pending_tests.clear()
+    for world_id, pending in pending_items:
+        pending.timer.cancel()
+        logger.info(
+            "Cancelled pending add-on test revert for world %s (%s)", world_id, reason
+        )
+        try:
+            with Session(get_engine()) as live:
+                ops.append_log(
+                    live,
+                    pending.operation_id,
+                    f"Test auto-revert cancelled ({reason})",
+                )
+        except Exception:
+            logger.exception(
+                "Failed to log cancelled test revert for world %s", world_id
+            )
+    return len(pending_items)
 
 
 def write_merged_pack_jsons(
@@ -1194,8 +1230,6 @@ def _run_apply(
         _wait_for_server_healthy(settings, timeout=HEALTH_TIMEOUT)
 
         if test_mode:
-            from datetime import timedelta
-
             minutes = max(1, settings.addon_test_minutes)
             expires = datetime.now(UTC) + timedelta(minutes=minutes)
             ops.append_log(
@@ -1257,8 +1291,28 @@ def _schedule_test_revert(
         try:
             with Session(get_engine()) as session:
                 revert_test_now(session, settings, world_id=world_id, user_id=None)
-        except AppError:
-            pass
+        except AppError as exc:
+            # Switch/backup holds the lock — retry soon instead of fighting Docker.
+            if (
+                "deferring" in str(exc).lower()
+                or "another operation" in str(exc).lower()
+            ):
+                logger.info(
+                    "Deferring add-on test revert for world %s: %s", world_id, exc
+                )
+                _schedule_test_revert(
+                    settings,
+                    operation_id=operation_id,
+                    world_id=world_id,
+                    world_folder=world_folder,
+                    snapshot_bp=snapshot_bp,
+                    snapshot_rp=snapshot_rp,
+                    expires_at=datetime.now(UTC) + timedelta(seconds=30),
+                )
+            else:
+                logger.info(
+                    "Add-on test revert skipped for world %s: %s", world_id, exc
+                )
         except Exception:
             logger.exception("Auto-revert failed for world %s", world_id)
 
